@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Math Tug of War</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Main Menu -->
+    <div id="main-menu" class="screen active">
+      <div class="menu-container">
+        <h1>🧮 Math Tug of War</h1>
+        <p class="subtitle">Tarik Tambang Matematika Online</p>
+        
+        <div class="menu-buttons">
+          <button id="btn-quick-match" class="btn btn-primary">⚡ Quick Match</button>
+          <button id="btn-create-room" class="btn btn-secondary">🏠 Buat Room</button>
+          <button id="btn-join-room" class="btn btn-secondary">🚪 Gabung Room</button>
+        </div>
+        
+        <div class="difficulty-select">
+          <label>Tingkat Kesulitan:</label>
+          <select id="difficulty">
+            <option value="easy">Mudah (SD)</option>
+            <option value="medium" selected>Sedang (Standar)</option>
+            <option value="hard">Sulit (Hardcore)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create Room Modal -->
+    <div id="create-room-modal" class="modal">
+      <div class="modal-content">
+        <h2>Buat Room Baru</h2>
+        <div class="form-group">
+          <label>Nama Kamu:</label>
+          <input type="text" id="player-name" placeholder="Masukkan nama..." maxlength="20">
+        </div>
+        <div class="form-group">
+          <label>Mode Input:</label>
+          <select id="input-mode">
+            <option value="multiple_choice">Pilihan Ganda</option>
+            <option value="numpad">Numpad / Keyboard</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Batas Kemenangan:</label>
+          <select id="win-threshold">
+            <option value="50">50 (Cepat)</option>
+            <option value="100" selected>100 (Standar)</option>
+            <option value="150">150 (Lama)</option>
+          </select>
+        </div>
+        <div class="modal-buttons">
+          <button id="btn-confirm-create" class="btn btn-primary">Buat Room</button>
+          <button id="btn-cancel-create" class="btn btn-cancel">Batal</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Join Room Modal -->
+    <div id="join-room-modal" class="modal">
+      <div class="modal-content">
+        <h2>Gabung Room</h2>
+        <div class="form-group">
+          <label>Nama Kamu:</label>
+          <input type="text" id="join-player-name" placeholder="Masukkan nama..." maxlength="20">
+        </div>
+        <div class="form-group">
+          <label>6-Digit Room Code:</label>
+          <input type="text" id="room-code" placeholder="Contoh: 782910" maxlength="6" pattern="[0-9]*">
+        </div>
+        <div class="modal-buttons">
+          <button id="btn-confirm-join" class="btn btn-primary">Gabung</button>
+          <button id="btn-cancel-join" class="btn btn-cancel">Batal</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Waiting Room -->
+    <div id="waiting-room" class="screen">
+      <div class="waiting-container">
+        <h2>Room: <span id="room-code-display">------</span></h2>
+        <div class="players-status">
+          <div class="player-slot" id="slot-p1">
+            <div class="avatar">🤠</div>
+            <div class="name">Menunggu...</div>
+            <div class="ready-status">⏳</div>
+          </div>
+          <div class="vs">VS</div>
+          <div class="player-slot" id="slot-p2">
+            <div class="avatar">🤖</div>
+            <div class="name">Menunggu...</div>
+            <div class="ready-status">⏳</div>
+          </div>
+        </div>
+        <div class="room-code-share">
+          <p>Bagikan kode ini ke lawanmu:</p>
+          <div class="code-display" id="share-code">------</div>
+        </div>
+        <button id="btn-ready" class="btn btn-primary">READY</button>
+        <button id="btn-leave-room" class="btn btn-cancel">Keluar</button>
+      </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+      <div class="game-header">
+        <div class="room-info">ROOM: <span id="game-room-code">------</span></div>
+        <div class="match-time" id="match-time">00:00</div>
+        <div class="ping">PING: <span id="ping-display">--</span>ms</div>
+      </div>
+
+      <div class="game-arena">
+        <!-- Player 1 (Left) -->
+        <div class="player-info left">
+          <div class="player-avatar">🤠</div>
+          <div class="player-score" id="p1-score">0</div>
+          <div class="player-name" id="p1-name">Player 1</div>
+          <div class="player-streak" id="p1-streak">Streak: 0x</div>
+        </div>
+
+        <!-- Rope Arena -->
+        <div class="rope-container">
+          <div class="rope-track">
+            <div class="zone zone-left">[-100]</div>
+            <div class="rope" id="rope"></div>
+            <div class="zone zone-right">[+100]</div>
+          </div>
+          <div class="rope-position" id="rope-position">0</div>
+        </div>
+
+        <!-- Player 2 (Right) -->
+        <div class="player-info right">
+          <div class="player-avatar">🤖</div>
+          <div class="player-score" id="p2-score">0</div>
+          <div class="player-name" id="p2-name">Player 2</div>
+          <div class="player-streak" id="p2-streak">Streak: 0x</div>
+        </div>
+      </div>
+
+      <!-- Question Section -->
+      <div class="question-section">
+        <div class="question-prompt" id="question-prompt">
+          Menunggu soal...
+        </div>
+        <div class="timer-bar-container">
+          <div class="timer-bar" id="timer-bar"></div>
+        </div>
+        <div class="question-meta">
+          <span class="force-potential" id="force-potential">Force: --</span>
+          <span class="response-time" id="response-time">-- ms</span>
+        </div>
+        <div class="answer-options" id="answer-options">
+          <!-- Options will be populated by JS -->
+        </div>
+        <div class="numpad" id="numpad" style="display: none;">
+          <div class="numpad-display" id="numpad-display">0</div>
+          <div class="numpad-grid">
+            <button class="numpad-btn" data-num="1">1</button>
+            <button class="numpad-btn" data-num="2">2</button>
+            <button class="numpad-btn" data-num="3">3</button>
+            <button class="numpad-btn" data-num="4">4</button>
+            <button class="numpad-btn" data-num="5">5</button>
+            <button class="numpad-btn" data-num="6">6</button>
+            <button class="numpad-btn" data-num="7">7</button>
+            <button class="numpad-btn" data-num="8">8</button>
+            <button class="numpad-btn" data-num="9">9</button>
+            <button class="numpad-btn numpad-clear">C</button>
+            <button class="numpad-btn" data-num="0">0</button>
+            <button class="numpad-btn numpad-enter">✓</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Match Over Screen -->
+    <div id="match-over" class="screen">
+      <div class="match-result">
+        <h1 id="result-title">MENANG!</h1>
+        <div class="result-subtitle" id="result-subtitle">Kamu memenangkan pertandingan!</div>
+        
+        <div class="final-stats">
+          <div class="stat-row">
+            <span class="stat-label">Posisi Tali Akhir:</span>
+            <span class="stat-value" id="final-rope-pos">0</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Durasi:</span>
+            <span class="stat-value" id="final-duration">0s</span>
+          </div>
+        </div>
+
+        <div class="player-stats">
+          <div class="stats-card" id="stats-p1">
+            <h3 id="stats-p1-name">Player 1</h3>
+            <div class="stat-item">Akurasi: <span id="stats-p1-accuracy">--%</span></div>
+            <div class="stat-item">Rata-rata Waktu: <span id="stats-p1-avgtime">--ms</span></div>
+            <div class="stat-item">Total Force: <span id="stats-p1-force">--</span></div>
+            <div class="stat-item">Max Streak: <span id="stats-p1-streak">--</span></div>
+          </div>
+          <div class="stats-card" id="stats-p2">
+            <h3 id="stats-p2-name">Player 2</h3>
+            <div class="stat-item">Akurasi: <span id="stats-p2-accuracy">--%</span></div>
+            <div class="stat-item">Rata-rata Waktu: <span id="stats-p2-avgtime">--ms</span></div>
+            <div class="stat-item">Total Force: <span id="stats-p2-force">--</span></div>
+            <div class="stat-item">Max Streak: <span id="stats-p2-streak">--</span></div>
+          </div>
+        </div>
+
+        <div class="result-buttons">
+          <button id="btn-rematch" class="btn btn-primary">🔄 Main Lagi</button>
+          <button id="btn-back-menu" class="btn btn-secondary">🏠 Kembali ke Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connection Status -->
+    <div id="connection-status" class="connection-status connecting">
+      <span class="status-dot"></span>
+      <span class="status-text">Menghubungkan...</span>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

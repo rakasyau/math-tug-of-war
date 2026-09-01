@@ -1,0 +1,20 @@
+{
+  "name": "math-tug-of-war",
+  "version": "1.0.0",
+  "description": "Real-time 1v1 Math Tug of War multiplayer educational game",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "socket.io-client": "^4.8.3",
+    "ws": "^8.21.3"
+  }
+}
