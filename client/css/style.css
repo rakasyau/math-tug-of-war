@@ -504,18 +504,19 @@ body {
   padding: 0.2rem;
   border-radius: var(--radius-md);
   border: 2px solid var(--bg-surface);
+  width: 100%;
 }
 
 .toggle-btn {
   flex: 1;
-  padding: 0.5rem 0.6rem;
+  padding: 0.5rem 0.4rem;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--font-body);
   font-weight: 700;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   cursor: pointer;
   transition: all var(--transition-fast);
   display: flex;
@@ -523,6 +524,9 @@ body {
   justify-content: center;
   gap: 0.2rem;
   min-height: 32px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toggle-btn:hover {
