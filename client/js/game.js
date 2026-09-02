@@ -1,7 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   MATH TUG OF WAR — P2P Game Client
-   Menggunakan PeerJS (WebRTC) untuk koneksi langsung antar browser
-   Host (p1) menjadi authoritative server untuk game state
+   MATH TUG OF WAR — P2P Game Client (Fixed & Optimized)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 // ─── Game State ────────────────────────────────────────────────────────────
@@ -9,7 +7,7 @@ const GameState = {
   playerId: null,
   playerName: `Player_${Math.floor(Math.random() * 9999)}`,
   roomId: null,
-  slot: null, // 'p1' (host) or 'p2' (guest)
+  slot: null,
   isPlaying: false,
   isHost: false,
   currentQuestion: null,
@@ -30,7 +28,6 @@ const GameState = {
 
 // ─── DOM Elements ──────────────────────────────────────────────────────────
 const DOM = {
-  // Screens
   mainMenu: document.getElementById('main-menu'),
   waitingRoom: document.getElementById('waiting-room'),
   gameScreen: document.getElementById('game-screen'),
@@ -38,27 +35,25 @@ const DOM = {
   createRoomModal: document.getElementById('create-room-modal'),
   joinRoomModal: document.getElementById('join-room-modal'),
   
-  // Menu
   btnQuickMatch: document.getElementById('btn-quick-match'),
   btnCreateRoom: document.getElementById('btn-create-room'),
   btnJoinRoom: document.getElementById('btn-join-room'),
   diffBtns: document.querySelectorAll('.diff-btn'),
   onlineCount: document.getElementById('online-count'),
   
-  // Create Room Modal
   playerName: document.getElementById('player-name'),
-  inputModeBtns: document.querySelectorAll('[data-mode]'),
-  thresholdBtns: document.querySelectorAll('[data-threshold]'),
+  inputModeGroup: document.getElementById('inputModeGroup'),
+  inputMode: document.getElementById('inputMode'),
+  thresholdGroup: document.getElementById('thresholdGroup'),
+  winThreshold: document.getElementById('winThreshold'),
   btnConfirmCreate: document.getElementById('btn-confirm-create'),
   btnCancelCreate: document.getElementById('btn-cancel-create'),
   
-  // Join Room Modal
   joinPlayerName: document.getElementById('join-player-name'),
   roomCode: document.getElementById('room-code'),
   btnConfirmJoin: document.getElementById('btn-confirm-join'),
   btnCancelJoin: document.getElementById('btn-cancel-join'),
   
-  // Waiting Room
   roomCodeDisplay: document.getElementById('room-code-display'),
   slotP1: document.getElementById('slot-p1'),
   slotP2: document.getElementById('slot-p2'),
@@ -68,7 +63,6 @@ const DOM = {
   btnLeaveRoom: document.getElementById('btn-leave-room'),
   btnCopyCode: document.getElementById('btn-copy-code'),
   
-  // Game
   gameRoomCode: document.getElementById('game-room-code'),
   matchTime: document.getElementById('match-time'),
   pingDisplay: document.getElementById('ping-display'),
@@ -91,11 +85,9 @@ const DOM = {
   numpadContainer: document.getElementById('numpad-container'),
   numpadDisplay: document.getElementById('numpad-display'),
   
-  // Feedback
   feedbackOverlay: document.getElementById('feedback-overlay'),
   stunOverlay: document.getElementById('stun-overlay'),
   
-  // Match Over
   resultTitle: document.getElementById('result-title'),
   resultSubtitle: document.getElementById('result-subtitle'),
   finalRopePos: document.getElementById('final-rope-pos'),
@@ -106,11 +98,10 @@ const DOM = {
   btnRematch: document.getElementById('btn-rematch'),
   btnBackMenu: document.getElementById('btn-back-menu'),
   
-  // Connection
   connectionStatus: document.getElementById('connection-status'),
 };
 
-// ─── Math Engine (Client-side for question generation) ─────────────────────
+// ─── Math Engine ───────────────────────────────────────────────────────────
 const MathEngine = {
   generateQuestion(difficulty, seed) {
     const rng = new SeededRNG(seed);
@@ -273,12 +264,10 @@ PeerManager.onConnected(() => {
   updateConnectionStatus('connected', 'Terhubung');
   
   if (GameState.isHost) {
-    // Host waits for guest to join
     showScreen('waiting-room');
     if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = GameState.roomId;
     if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
   } else {
-    // Guest sends join message to host
     PeerManager.send({
       type: 'JOIN',
       playerName: GameState.playerName,
@@ -329,7 +318,6 @@ function handleGuestJoin(data) {
   
   GameState.roomId = PeerManager.roomCode;
   
-  // Update waiting room
   const card = document.getElementById('slot-p2');
   if (card) {
     card.classList.add('connected');
@@ -337,21 +325,9 @@ function handleGuestJoin(data) {
     if (nameEl) nameEl.textContent = data.playerName;
   }
   
-  // Notify guest that host is ready
-  PeerManager.send({
-    type: 'HOST_READY',
-    hostName: GameState.playerName,
-  });
-  
-  // Auto-start game after short delay
   setTimeout(() => {
     startGame();
   }, 1500);
-}
-
-// ─── Guest: Host Ready ────────────────────────────────────────────────────
-function handleHostReady(data) {
-  // Host is ready, game will start
 }
 
 // ─── Start Game ────────────────────────────────────────────────────────────
@@ -366,12 +342,10 @@ function startGame() {
   GameState.totalResponseTime = { p1: 0, p2: 0 };
   GameState.ropePosition = 0;
   
-  // Generate initial questions
   const q1 = generateNewQuestion('p1');
   const q2 = generateNewQuestion('p2');
   
   if (GameState.isHost) {
-    // Send game start to guest
     PeerManager.send({
       type: 'GAME_START',
       settings: { difficulty: GameState.difficulty, winThreshold: GameState.winThreshold },
@@ -380,23 +354,21 @@ function startGame() {
     });
   }
   
-  // Show game screen locally
   startGameLocal(q1);
 }
 
 function handleGameStart(data) {
-  if (GameState.isHost) return; // Host already started
+  if (GameState.isHost) return;
   
   GameState.difficulty = data.settings.difficulty;
   GameState.winThreshold = data.settings.winThreshold;
   
-  // Get question from host
   const question = data.question;
   playerQuestions.p2.current = {
     questionId: question.questionId,
     prompt: question.prompt,
     options: question.options,
-    answer: null, // Guest doesn't know answer yet
+    answer: null,
   };
   
   startGameLocal(question);
@@ -504,7 +476,6 @@ function submitAnswer(answer) {
     document.querySelectorAll('.answer-btn').forEach(btn => btn.disabled = true);
   }
   
-  // Send answer to peer (host will validate)
   PeerManager.send({
     type: 'ANSWER',
     questionId: GameState.currentQuestion.questionId,
@@ -516,17 +487,15 @@ function submitAnswer(answer) {
 
 // ─── Handle Answer ────────────────────────────────────────────────────────
 function handleOpponentAnswer(data) {
-  if (!GameState.isHost) return; // Only host processes answers
+  if (!GameState.isHost) return;
   
   const slot = GameState.slot;
   const question = playerQuestions[slot].current;
   
-  // Validate answer
   const isCorrect = (data.submittedAnswer === question.answer);
   const responseTimeMs = data.responseTimeMs || 0;
   const responseTimeSec = Math.max(0.1, responseTimeMs / 1000);
   
-  // Update stats
   GameState.totalAnswers[slot]++;
   GameState.totalResponseTime[slot] += responseTimeMs;
   
@@ -543,22 +512,17 @@ function handleOpponentAnswer(data) {
     const force = MathEngine.calculateForce(responseTimeSec, GameState.difficulty, GameState.streaks[slot]);
     forceApplied = force;
     
-    // Apply force
     if (slot === 'p1') GameState.ropePosition -= force;
     else GameState.ropePosition += force;
     GameState.scores[slot] += force;
     
-    // Clamp
     GameState.ropePosition = Math.max(-120, Math.min(120, GameState.ropePosition));
     
-    // Generate new question
     nextQuestion = generateNewQuestion(slot);
   } else {
     GameState.streaks[slot] = 0;
-    // No new question on wrong answer
   }
   
-  // Send result back to guest
   PeerManager.send({
     type: 'GAME_STATE',
     isCorrect,
@@ -576,7 +540,6 @@ function handleOpponentAnswer(data) {
     winnerId: checkWinner(),
   });
   
-  // Update host's own display
   updateGameStateLocal({
     isCorrect,
     forceApplied,
@@ -585,10 +548,9 @@ function handleOpponentAnswer(data) {
     ropePosition: GameState.ropePosition,
     scores: GameState.scores,
     streaks: GameState.streaks,
-    nextQuestion: null, // Host doesn't need next question here
+    nextQuestion: null,
   });
   
-  // Check for game over
   const winnerId = checkWinner();
   if (winnerId) {
     endMatch(winnerId);
@@ -596,7 +558,6 @@ function handleOpponentAnswer(data) {
 }
 
 function handleGameState(data) {
-  // Guest receives game state from host after answering
   updateGameStateLocal(data);
   
   if (data.isCorrect && data.nextQuestion) {
@@ -623,7 +584,6 @@ function updateGameStateLocal(data) {
     updateStreakDisplay();
   }
   
-  // Show feedback
   if (data.isCorrect !== undefined) {
     if (data.isCorrect) {
       showFeedback('🎉', 'BENAR!', `+${data.forceApplied} pts`);
@@ -684,7 +644,6 @@ function endMatch(winnerId) {
   const duration = Math.floor((Date.now() - GameState.matchStartTime) / 1000);
   const isWinner = winnerId === GameState.slot;
   
-  // Show match over screen
   if (DOM.resultTitle) {
     DOM.resultTitle.textContent = isWinner ? 'MENANG!' : 'KALAH!';
     DOM.resultTitle.style.color = isWinner ? 'var(--accent-warning)' : 'var(--accent-danger)';
@@ -699,7 +658,6 @@ function endMatch(winnerId) {
   if (DOM.finalRopePos) DOM.finalRopePos.textContent = Math.round(GameState.ropePosition * 10) / 10;
   if (DOM.finalDuration) DOM.finalDuration.textContent = `${duration}s`;
   
-  // Update stats
   updateMatchStats('p1', GameState.scores.p1, GameState.maxStreaks.p1, 
     GameState.correctCounts.p1 / Math.max(1, GameState.totalAnswers.p1),
     GameState.totalResponseTime.p1 / Math.max(1, GameState.totalAnswers.p1));
@@ -773,6 +731,39 @@ function startMatchTimer() {
   }, 1000);
 }
 
+// ─── Toggle Buttons ────────────────────────────────────────────────────────
+function setupToggleButtons() {
+  // Input mode toggle
+  if (DOM.inputModeGroup) {
+    const btns = DOM.inputModeGroup.querySelectorAll('.toggle-btn');
+    btns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        btns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const value = btn.dataset.value;
+        if (DOM.inputMode) DOM.inputMode.value = value;
+        GameState.inputMode = value;
+        if (window.SoundEngine) SoundEngine.play('click');
+      });
+    });
+  }
+  
+  // Win threshold toggle
+  if (DOM.thresholdGroup) {
+    const btns = DOM.thresholdGroup.querySelectorAll('.toggle-btn');
+    btns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        btns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const value = parseInt(btn.dataset.value);
+        if (DOM.winThreshold) DOM.winThreshold.value = value;
+        GameState.winThreshold = value;
+        if (window.SoundEngine) SoundEngine.play('click');
+      });
+    });
+  }
+}
+
 // ─── Difficulty Selection ─────────────────────────────────────────────────
 if (DOM.diffBtns) {
   DOM.diffBtns.forEach(btn => {
@@ -788,7 +779,6 @@ if (DOM.diffBtns) {
 if (DOM.btnQuickMatch) {
   DOM.btnQuickMatch.addEventListener('click', () => {
     if (window.SoundEngine) SoundEngine.play('click');
-    // Quick match not available in P2P mode - use create/join
     showModal(DOM.createRoomModal);
   });
 }
@@ -813,6 +803,10 @@ if (DOM.btnConfirmCreate) {
     GameState.playerName = DOM.playerName.value || GameState.playerName;
     GameState.isHost = true;
     GameState.slot = 'p1';
+    
+    // Get selected values from hidden inputs
+    if (DOM.inputMode) GameState.inputMode = DOM.inputMode.value;
+    if (DOM.winThreshold) GameState.winThreshold = parseInt(DOM.winThreshold.value);
     
     hideModal(DOM.createRoomModal);
     updateConnectionStatus('connecting', 'Membuat room...');
@@ -943,6 +937,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ─── Initialize ────────────────────────────────────────────────────────────
+setupToggleButtons();
 showScreen('main-menu');
 
 // Sound toggle

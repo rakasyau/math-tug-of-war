@@ -91,22 +91,24 @@
         <div class="form-row">
           <div class="form-group">
             <label>Mode Input</label>
-            <div class="toggle-group">
-              <button type="button" class="toggle-btn active" data-mode="multiple_choice">
+            <div class="toggle-group" id="inputModeGroup">
+              <button type="button" class="toggle-btn active" data-value="multiple_choice">
                 <span>📝</span> Pilihan Ganda
               </button>
-              <button type="button" class="toggle-btn" data-mode="numpad">
+              <button type="button" class="toggle-btn" data-value="numpad">
                 <span>🔢</span> Numpad
               </button>
             </div>
+            <input type="hidden" id="inputMode" value="multiple_choice">
           </div>
           <div class="form-group">
             <label>Batas Kemenangan</label>
-            <div class="toggle-group">
-              <button type="button" class="toggle-btn" data-threshold="50">50</button>
-              <button type="button" class="toggle-btn active" data-threshold="100">100</button>
-              <button type="button" class="toggle-btn" data-threshold="150">150</button>
+            <div class="toggle-group" id="thresholdGroup">
+              <button type="button" class="toggle-btn" data-value="50">50</button>
+              <button type="button" class="toggle-btn active" data-value="100">100</button>
+              <button type="button" class="toggle-btn" data-value="150">150</button>
             </div>
+            <input type="hidden" id="winThreshold" value="100">
           </div>
         </div>
         <div class="modal-buttons">

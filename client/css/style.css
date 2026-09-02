@@ -557,13 +557,17 @@ body {
 .toggle-group {
   display: flex;
   gap: 0.5rem;
+  background: var(--bg-primary);
+  padding: 0.25rem;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--bg-surface);
 }
 
 .toggle-btn {
   flex: 1;
   padding: 0.6rem 0.75rem;
-  background: var(--bg-primary);
-  border: 2px solid var(--bg-surface);
+  background: transparent;
+  border: none;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--font-body);
@@ -571,16 +575,26 @@ body {
   font-size: 0.85rem;
   cursor: pointer;
   transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-height: 36px;
 }
 
 .toggle-btn:hover {
-  border-color: var(--accent-secondary);
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.05);
 }
 
 .toggle-btn.active {
-  background: var(--bg-surface);
-  border-color: var(--accent-primary);
-  color: var(--text-primary);
+  background: var(--accent-primary);
+  color: white;
+  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.4);
+}
+
+.toggle-btn span {
+  font-size: 1rem;
 }
 
 .code-input-group {
