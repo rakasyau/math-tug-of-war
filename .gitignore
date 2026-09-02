@@ -26,3 +26,5 @@ Thumbs.db
 # Build (if applicable)
 dist/
 build/
+
+.vercel

@@ -1,25 +1,29 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   MATH TUG OF WAR — Game Client
+   MATH TUG OF WAR — P2P Game Client
+   Menggunakan PeerJS (WebRTC) untuk koneksi langsung antar browser
+   Host (p1) menjadi authoritative server untuk game state
    ═══════════════════════════════════════════════════════════════════════════ */
-
-const socket = io();
 
 // ─── Game State ────────────────────────────────────────────────────────────
 const GameState = {
   playerId: null,
   playerName: `Player_${Math.floor(Math.random() * 9999)}`,
   roomId: null,
-  slot: null,
+  slot: null, // 'p1' (host) or 'p2' (guest)
   isPlaying: false,
+  isHost: false,
   currentQuestion: null,
   ropePosition: 0,
   scores: { p1: 0, p2: 0 },
   streaks: { p1: 0, p2: 0 },
+  maxStreaks: { p1: 0, p2: 0 },
+  correctCounts: { p1: 0, p2: 0 },
+  totalAnswers: { p1: 0, p2: 0 },
+  totalResponseTime: { p1: 0, p2: 0 },
   matchStartTime: null,
   inputMode: 'multiple_choice',
   isStunned: false,
   numpadValue: '',
-  lastPingTime: 0,
   difficulty: 'medium',
   winThreshold: 100,
 };
@@ -106,15 +110,144 @@ const DOM = {
   connectionStatus: document.getElementById('connection-status'),
 };
 
+// ─── Math Engine (Client-side for question generation) ─────────────────────
+const MathEngine = {
+  generateQuestion(difficulty, seed) {
+    const rng = new SeededRNG(seed);
+    const ops = MathEngine._getOperators(difficulty);
+    const op = ops[rng.nextInt(0, ops.length - 1)];
+
+    let a, b, c, answer, prompt;
+
+    switch (op) {
+      case '+':
+        a = rng.nextInt(1, difficulty === 'easy' ? 50 : 100);
+        b = rng.nextInt(1, difficulty === 'easy' ? 50 : 100);
+        answer = a + b;
+        prompt = `${a} + ${b}`;
+        break;
+      case '-':
+        a = rng.nextInt(10, difficulty === 'easy' ? 50 : 100);
+        b = rng.nextInt(1, a);
+        answer = a - b;
+        prompt = `${a} - ${b}`;
+        break;
+      case '*':
+        if (difficulty === 'hard') {
+          a = rng.nextInt(2, 12);
+          b = rng.nextInt(2, 12);
+          c = rng.nextInt(1, 20);
+          if (rng.next() > 0.5) {
+            answer = a * b + c;
+            prompt = `${a} × ${b} + ${c}`;
+          } else {
+            answer = a * b - c;
+            prompt = `${a} × ${b} − ${c}`;
+          }
+        } else {
+          a = rng.nextInt(2, 12);
+          b = rng.nextInt(2, 12);
+          answer = a * b;
+          prompt = `${a} × ${b}`;
+        }
+        break;
+      case '/':
+        b = rng.nextInt(2, 12);
+        answer = rng.nextInt(2, 12);
+        a = b * answer;
+        prompt = `${a} ÷ ${b}`;
+        break;
+      default:
+        a = rng.nextInt(1, 10);
+        b = rng.nextInt(1, 10);
+        answer = a + b;
+        prompt = `${a} + ${b}`;
+    }
+
+    const options = MathEngine._generateDistractors(answer, rng);
+
+    return {
+      questionId: `q_${Date.now()}_${rng.nextInt(0, 99999)}`,
+      prompt,
+      options,
+      answer,
+      difficulty,
+      seed,
+    };
+  },
+
+  _getOperators(difficulty) {
+    switch (difficulty) {
+      case 'easy': return ['+', '-'];
+      case 'medium': return ['+', '-', '*'];
+      case 'hard': return ['+', '-', '*', '/'];
+      default: return ['+', '-'];
+    }
+  },
+
+  _generateDistractors(answer, rng) {
+    const distractors = new Set();
+    distractors.add(answer + 1);
+    distractors.add(answer - 1);
+    distractors.add(answer + 10);
+    distractors.add(answer - 10);
+    while (distractors.size < 4) {
+      const d = answer + rng.nextInt(-20, 20);
+      if (d !== answer && d >= 0) distractors.add(d);
+    }
+    const allOptions = [...distractors].slice(0, 3);
+    allOptions.push(answer);
+    for (let i = allOptions.length - 1; i > 0; i--) {
+      const j = rng.nextInt(0, i);
+      [allOptions[i], allOptions[j]] = [allOptions[j], allOptions[i]];
+    }
+    return allOptions;
+  },
+
+  calculateForce(responseTimeSec, difficulty, streak) {
+    const F_BASE = difficulty === 'easy' ? 12 : difficulty === 'hard' ? 20 : 15;
+    const LAMBDA = 0.35;
+    const MIN_MULT = 0.20;
+    const decay = Math.exp(-LAMBDA * responseTimeSec);
+    const multiplier = Math.max(decay, MIN_MULT);
+    const combo = Math.min(1.0 + 0.1 * streak, 1.5);
+    return Math.round(F_BASE * multiplier * combo * 10) / 10;
+  }
+};
+
+class SeededRNG {
+  constructor(seed) { this.seed = seed; }
+  next() {
+    this.seed = (this.seed * 1664525 + 1013904223) % 4294967296;
+    return this.seed / 4294967296;
+  }
+  nextInt(min, max) {
+    return Math.floor(this.next() * (max - min + 1)) + min;
+  }
+}
+
+// ─── Per-Player Question State ─────────────────────────────────────────────
+const playerQuestions = {
+  p1: { current: null, seed: null },
+  p2: { current: null, seed: null },
+};
+
+function generateNewQuestion(playerSlot) {
+  const seed = Date.now() + Math.floor(Math.random() * 100000) + (playerSlot === 'p1' ? 1 : 2);
+  playerQuestions[playerSlot].seed = seed;
+  const question = MathEngine.generateQuestion(GameState.difficulty, seed);
+  playerQuestions[playerSlot].current = question;
+  return question;
+}
+
 // ─── Screen Management ─────────────────────────────────────────────────────
 function showScreen(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const screen = document.getElementById(screenId);
   if (screen) {
     screen.classList.add('active');
-    // Trigger entrance animation
     screen.style.animation = 'none';
-    screen.offsetHeight; // Force reflow
+    screen.offsetHeight;
     screen.style.animation = '';
   }
 }
@@ -128,310 +261,159 @@ function hideModal(modal) {
 }
 
 // ─── Connection Handling ───────────────────────────────────────────────────
-socket.on('connect', () => {
-  updateConnectionStatus('connected', 'Terhubung');
-});
-
-socket.on('disconnect', () => {
-  updateConnectionStatus('disconnected', 'Terputus!');
-});
-
-socket.on('PLAYER_ID', (data) => {
-  GameState.playerId = data.playerId;
-});
-
 function updateConnectionStatus(status, text) {
   if (!DOM.connectionStatus) return;
   DOM.connectionStatus.className = `connection-status ${status}`;
   DOM.connectionStatus.querySelector('.status-text').textContent = text;
 }
 
-// ─── Difficulty Selection ─────────────────────────────────────────────────
-if (DOM.diffBtns) {
-  DOM.diffBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      DOM.diffBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      GameState.difficulty = btn.dataset.diff;
-    });
-  });
-}
-
-// ─── Toggle Buttons in Create Room ────────────────────────────────────────
-if (DOM.inputModeBtns) {
-  DOM.inputModeBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      DOM.inputModeBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      GameState.inputMode = btn.dataset.mode;
-    });
-  });
-}
-
-if (DOM.thresholdBtns) {
-  DOM.thresholdBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      DOM.thresholdBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      GameState.winThreshold = parseInt(btn.dataset.threshold);
-    });
-  });
-}
-
-// ─── Menu Event Listeners ──────────────────────────────────────────────────
-if (DOM.btnQuickMatch) {
-  DOM.btnQuickMatch.addEventListener('click', () => {
-    if (window.SoundEngine) SoundEngine.play('click');
-    socket.emit('QUICK_MATCH', {
+// ─── Peer Event Handlers ───────────────────────────────────────────────────
+PeerManager.onConnected(() => {
+  console.log('PEER: Connected!');
+  updateConnectionStatus('connected', 'Terhubung');
+  
+  if (GameState.isHost) {
+    // Host waits for guest to join
+    showScreen('waiting-room');
+    if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = GameState.roomId;
+    if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
+  } else {
+    // Guest sends join message to host
+    PeerManager.send({
+      type: 'JOIN',
       playerName: GameState.playerName,
-      difficulty: GameState.difficulty,
     });
-  });
-}
-
-if (DOM.btnCreateRoom) {
-  DOM.btnCreateRoom.addEventListener('click', () => {
-    if (window.SoundEngine) SoundEngine.play('click');
-    showModal(DOM.createRoomModal);
-  });
-}
-
-if (DOM.btnJoinRoom) {
-  DOM.btnJoinRoom.addEventListener('click', () => {
-    showModal(DOM.joinRoomModal);
-  });
-}
-
-if (DOM.btnConfirmCreate) {
-  DOM.btnConfirmCreate.addEventListener('click', () => {
-    GameState.playerName = DOM.playerName.value || GameState.playerName;
-    socket.emit('CREATE_ROOM', {
-      playerName: GameState.playerName,
-      difficulty: GameState.difficulty,
-      inputMode: GameState.inputMode,
-      winThreshold: GameState.winThreshold,
-    });
-    hideModal(DOM.createRoomModal);
-  });
-}
-
-if (DOM.btnCancelCreate) {
-  DOM.btnCancelCreate.addEventListener('click', () => hideModal(DOM.createRoomModal));
-}
-
-if (DOM.btnConfirmJoin) {
-  DOM.btnConfirmJoin.addEventListener('click', () => {
-    GameState.playerName = DOM.joinPlayerName.value || GameState.playerName;
-    socket.emit('JOIN_ROOM', {
-      playerName: GameState.playerName,
-      roomId: DOM.roomCode.value,
-    });
-    hideModal(DOM.joinRoomModal);
-  });
-}
-
-if (DOM.btnCancelJoin) {
-  DOM.btnCancelJoin.addEventListener('click', () => hideModal(DOM.joinRoomModal));
-}
-
-// ─── Socket Event Handlers ─────────────────────────────────────────────────
-socket.on('ROOM_CREATED', (data) => {
-  GameState.roomId = data.roomId;
-  GameState.slot = data.slot;
-  GameState.inputMode = data.room.settings.inputMode || 'multiple_choice';
-  enterWaitingRoom(data);
-});
-
-socket.on('ROOM_JOINED', (data) => {
-  GameState.roomId = data.roomId;
-  GameState.slot = data.slot;
-  GameState.inputMode = data.room.settings.inputMode || 'multiple_choice';
-  enterWaitingRoom(data);
-});
-
-socket.on('PLAYER_JOINED', (data) => {
-  const slot = GameState.slot === 'p1' ? 'p2' : 'p1';
-  updateWaitingSlot(slot, data.playerName, false);
-  // Animation
-  const card = document.getElementById(`slot-${slot}`);
-  if (card) {
-    card.classList.add('connected');
-    card.style.animation = 'fadeInUp 0.5s ease-out';
+    showScreen('waiting-room');
+    if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = GameState.roomId;
+    if (DOM.p2NameWaiting) DOM.p2NameWaiting.textContent = GameState.playerName;
   }
 });
 
-socket.on('ROOM_READY', (data) => {
-  document.querySelectorAll('.player-badge').forEach(b => {
-    b.querySelector('.badge-icon').textContent = '⏳';
-  });
-});
-
-socket.on('OPPONENT_READY', (data) => {
-  const slot = GameState.slot === 'p1' ? 'p2' : 'p1';
-  const card = document.getElementById(`slot-${slot}`);
-  if (card) {
-    card.classList.add('ready');
-    const badge = card.querySelector('.player-badge');
-    badge.classList.add('ready');
-    badge.querySelector('.badge-icon').textContent = '✅';
-    badge.querySelector('.badge-text').textContent = 'Ready!';
-  }
-});
-
-socket.on('GAME_STARTED', (data) => {
-  startGame(data);
-});
-
-socket.on('GAME_STATE_UPDATE', (data) => {
-  updateGameState(data);
-});
-
-socket.on('ANSWER_RESULT', (data) => {
-  showAnswerResult(data);
-  // Show next question immediately (already included in ANSWER_RESULT)
-  if (data.nextQuestion) {
-    showQuestion(data.nextQuestion);
-    if (window.SoundEngine) SoundEngine.play('newQuestion');
-  }
-});
-
-socket.on('MATCH_OVER', (data) => {
-  showMatchOver(data);
-  // Play win/lose sound
-  if (window.SoundEngine) {
-    const isWinner = data.winnerId === GameState.playerId;
-    SoundEngine.play(isWinner ? 'win' : 'lose');
-  }
-});
-
-socket.on('REMATCH_REQUESTED', (data) => {
-  if (confirm('Lawan ingin main lagi! Terima?')) {
-    socket.emit('REMATCH_ACCEPT', {});
-  }
-});
-
-socket.on('REMATCH_ACCEPTED', (data) => {
-  showScreen('waiting-room');
-  if (window.SoundEngine) SoundEngine.play('notify');
-});
-
-socket.on('ERROR', (data) => {
-  console.error('Server error:', data.message);
-  showFeedback('❌', 'Error', data.message);
+PeerManager.onDisconnected(() => {
+  console.log('PEER: Disconnected');
+  updateConnectionStatus('disconnected', 'Terputus!');
   if (window.SoundEngine) SoundEngine.play('wrong');
 });
 
-// ─── Waiting Room ──────────────────────────────────────────────────────────
-function enterWaitingRoom(data) {
-  showScreen('waiting-room');
-  if (DOM.roomCodeDisplay) {
-    DOM.roomCodeDisplay.textContent = data.roomId;
-  }
-  
-  updateWaitingSlot(GameState.slot, GameState.playerName, false);
-  
-  const oppSlot = GameState.slot === 'p1' ? 'p2' : 'p1';
-  const opp = data.room.players[oppSlot];
-  if (opp) {
-    updateWaitingSlot(oppSlot, opp.name, false);
-  }
-  
-  // Reset ready state
-  document.querySelectorAll('.player-card').forEach(card => {
-    card.classList.remove('ready', 'connected');
-  });
-  document.querySelectorAll('.player-badge').forEach(badge => {
-    badge.classList.remove('ready');
-    badge.querySelector('.badge-icon').textContent = '⏳';
-    badge.querySelector('.badge-text').textContent = 'Belum Ready';
-  });
-  
-  if (DOM.btnReady) {
-    DOM.btnReady.disabled = false;
-    DOM.btnReady.innerHTML = '<span>✓ READY</span>';
+PeerManager.onData((data) => {
+  console.log('PEER: Data received:', data.type);
+  handlePeerData(data);
+});
+
+function handlePeerData(data) {
+  switch (data.type) {
+    case 'JOIN':
+      handleGuestJoin(data);
+      break;
+    case 'GAME_START':
+      handleGameStart(data);
+      break;
+    case 'ANSWER':
+      handleOpponentAnswer(data);
+      break;
+    case 'GAME_STATE':
+      handleGameState(data);
+      break;
+    case 'MATCH_OVER':
+      handleMatchOver(data);
+      break;
+    case 'REMATCH':
+      handleRematch(data);
+      break;
   }
 }
 
-function updateWaitingSlot(slot, name, isReady) {
-  const nameEl = document.getElementById(`${slot}-name`);
-  if (nameEl) {
-    nameEl.textContent = name;
-  }
-  const card = document.getElementById(`slot-${slot}`);
-  if (card && name !== 'Menunggu...') {
+// ─── Host: Guest Joins ────────────────────────────────────────────────────
+function handleGuestJoin(data) {
+  if (!GameState.isHost) return;
+  
+  GameState.roomId = PeerManager.roomCode;
+  
+  // Update waiting room
+  const card = document.getElementById('slot-p2');
+  if (card) {
     card.classList.add('connected');
+    const nameEl = document.getElementById('p2-name');
+    if (nameEl) nameEl.textContent = data.playerName;
   }
-}
-
-if (DOM.btnReady) {
-  DOM.btnReady.addEventListener('click', () => {
-    socket.emit('PLAYER_READY', {});
-    const myCard = document.getElementById(`slot-${GameState.slot}`);
-    if (myCard) {
-      myCard.classList.add('ready');
-      const badge = myCard.querySelector('.player-badge');
-      badge.classList.add('ready');
-      badge.querySelector('.badge-icon').textContent = '✅';
-      badge.querySelector('.badge-text').textContent = 'Ready!';
-    }
-    DOM.btnReady.disabled = true;
-    DOM.btnReady.innerHTML = '<span>Menunggu lawan...</span>';
+  
+  // Notify guest that host is ready
+  PeerManager.send({
+    type: 'HOST_READY',
+    hostName: GameState.playerName,
   });
+  
+  // Auto-start game after short delay
+  setTimeout(() => {
+    startGame();
+  }, 1500);
 }
 
-if (DOM.btnLeaveRoom) {
-  DOM.btnLeaveRoom.addEventListener('click', () => {
-    socket.emit('LEAVE_ROOM', {});
-    GameState.roomId = null;
-    GameState.slot = null;
-    showScreen('main-menu');
-  });
+// ─── Guest: Host Ready ────────────────────────────────────────────────────
+function handleHostReady(data) {
+  // Host is ready, game will start
 }
 
-if (DOM.btnCopyCode) {
-  DOM.btnCopyCode.addEventListener('click', () => {
-    const code = DOM.roomCodeDisplay?.textContent;
-    if (code && code !== '------') {
-      navigator.clipboard.writeText(code).then(() => {
-        DOM.btnCopyCode.textContent = '✅ Copied!';
-        setTimeout(() => {
-          DOM.btnCopyCode.textContent = '📋 Copy';
-        }, 2000);
-      });
-    }
-  });
-}
-
-// ─── Game Start ────────────────────────────────────────────────────────────
-function startGame(data) {
-  showScreen('game-screen');
+// ─── Start Game ────────────────────────────────────────────────────────────
+function startGame() {
   GameState.isPlaying = true;
   GameState.matchStartTime = Date.now();
   GameState.scores = { p1: 0, p2: 0 };
   GameState.streaks = { p1: 0, p2: 0 };
+  GameState.maxStreaks = { p1: 0, p2: 0 };
+  GameState.correctCounts = { p1: 0, p2: 0 };
+  GameState.totalAnswers = { p1: 0, p2: 0 };
+  GameState.totalResponseTime = { p1: 0, p2: 0 };
   GameState.ropePosition = 0;
-  GameState.isStunned = false;
   
-  if (DOM.gameRoomCode) {
-    DOM.gameRoomCode.textContent = GameState.roomCode;
+  // Generate initial questions
+  const q1 = generateNewQuestion('p1');
+  const q2 = generateNewQuestion('p2');
+  
+  if (GameState.isHost) {
+    // Send game start to guest
+    PeerManager.send({
+      type: 'GAME_START',
+      settings: { difficulty: GameState.difficulty, winThreshold: GameState.winThreshold },
+      question: { questionId: q2.questionId, prompt: q2.prompt, options: q2.options },
+      hostQuestion: { questionId: q1.questionId, prompt: q1.prompt, options: q1.options },
+    });
   }
   
-  if (DOM.p1NameGame) DOM.p1NameGame.textContent = data.room.players.p1?.name || 'P1';
-  if (DOM.p2NameGame) DOM.p2NameGame.textContent = data.room.players.p2?.name || 'P2';
+  // Show game screen locally
+  startGameLocal(q1);
+}
+
+function handleGameStart(data) {
+  if (GameState.isHost) return; // Host already started
   
-  // Reset score displays
+  GameState.difficulty = data.settings.difficulty;
+  GameState.winThreshold = data.settings.winThreshold;
+  
+  // Get question from host
+  const question = data.question;
+  playerQuestions.p2.current = {
+    questionId: question.questionId,
+    prompt: question.prompt,
+    options: question.options,
+    answer: null, // Guest doesn't know answer yet
+  };
+  
+  startGameLocal(question);
+}
+
+function startGameLocal(question) {
+  showScreen('game-screen');
+  GameState.matchStartTime = Date.now();
+  
+  if (DOM.gameRoomCode) DOM.gameRoomCode.textContent = GameState.roomId;
+  if (DOM.p1NameGame) DOM.p1NameGame.textContent = GameState.playerName;
+  if (DOM.p2NameGame) DOM.p2NameGame.textContent = 'Opponent';
+  
   updateScoreDisplay();
   updateRopePosition(0);
-  
-  // Show initial question
-  if (GameState.slot === 'p1' && data.questions?.p1) {
-    showQuestion(data.questions.p1);
-  } else if (GameState.slot === 'p2' && data.questions?.p2) {
-    showQuestion(data.questions.p2);
-  }
-  
+  showQuestion(question);
   startMatchTimer();
-  startPingMonitor();
 }
 
 // ─── Question Display ──────────────────────────────────────────────────────
@@ -448,10 +430,7 @@ function showQuestion(question) {
     DOM.questionPrompt.style.animation = 'fadeInUp 0.3s ease-out';
   }
   
-  if (DOM.questionCategory) {
-    DOM.questionCategory.textContent = 'SOAL';
-  }
-  
+  if (DOM.questionCategory) DOM.questionCategory.textContent = 'SOAL';
   if (DOM.responseTime) DOM.responseTime.textContent = '-- ms';
   
   if (GameState.inputMode === 'numpad') {
@@ -464,13 +443,13 @@ function showQuestion(question) {
     renderAnswerOptions(question.options);
   }
   
+  if (window.SoundEngine) SoundEngine.play('newQuestion');
   startTimerBar();
 }
 
 function renderAnswerOptions(options) {
   if (!DOM.answerOptions) return;
   DOM.answerOptions.innerHTML = '';
-  
   options.forEach((opt, idx) => {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -488,7 +467,6 @@ let timerStartTime = null;
 
 function startTimerBar() {
   if (timerBarInterval) clearInterval(timerBarInterval);
-  
   timerStartTime = Date.now();
   const totalDuration = 10000;
   
@@ -496,30 +474,21 @@ function startTimerBar() {
     const elapsed = Date.now() - timerStartTime;
     const remaining = Math.max(0, 1 - (elapsed / totalDuration));
     
-    if (DOM.timerBar) {
-      DOM.timerBar.style.transform = `scaleX(${remaining})`;
-    }
+    if (DOM.timerBar) DOM.timerBar.style.transform = `scaleX(${remaining})`;
     
     const responseTimeSec = elapsed / 1000;
     const force = calculateForcePreview(responseTimeSec);
     if (DOM.forceValue) DOM.forceValue.textContent = force;
     
-    if (remaining <= 0) {
-      clearInterval(timerBarInterval);
-    }
+    if (remaining <= 0) clearInterval(timerBarInterval);
   }, 50);
 }
 
 function calculateForcePreview(responseTimeSec) {
-  const F_BASE = 15;
-  const LAMBDA = 0.35;
-  const MIN_MULT = 0.20;
-  
-  const decay = Math.exp(-LAMBDA * responseTimeSec);
-  const multiplier = Math.max(decay, MIN_MULT);
-  const force = F_BASE * multiplier;
-  
-  return Math.round(force * 10) / 10;
+  const F_BASE = GameState.difficulty === 'easy' ? 12 : GameState.difficulty === 'hard' ? 20 : 15;
+  const decay = Math.exp(-0.35 * responseTimeSec);
+  const multiplier = Math.max(decay, 0.20);
+  return Math.round(F_BASE * multiplier * 10) / 10;
 }
 
 // ─── Answer Submission ─────────────────────────────────────────────────────
@@ -531,188 +500,155 @@ function submitAnswer(answer) {
   const responseTime = Date.now() - timerStartTime;
   if (DOM.responseTime) DOM.responseTime.textContent = `${responseTime} ms`;
   
-  if (DOM.inputMode === 'multiple_choice') {
-    document.querySelectorAll('.answer-btn').forEach(btn => {
-      btn.disabled = true;
-      if (parseInt(btn.textContent) === answer) {
-        btn.style.borderColor = 'var(--accent-primary)';
-      }
-    });
+  if (GameState.inputMode === 'multiple_choice') {
+    document.querySelectorAll('.answer-btn').forEach(btn => btn.disabled = true);
   }
   
-  socket.emit('SUBMIT_ANSWER', {
+  // Send answer to peer (host will validate)
+  PeerManager.send({
+    type: 'ANSWER',
     questionId: GameState.currentQuestion.questionId,
     submittedAnswer: answer,
     clientTimestamp: Date.now(),
+    responseTimeMs: responseTime,
   });
 }
 
-// ─── Numpad Handling ───────────────────────────────────────────────────────
-document.querySelectorAll('.numpad-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (GameState.isStunned) return;
-    
-    const num = btn.dataset.num;
-    
-    if (num !== undefined) {
-      GameState.numpadValue += num;
-      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue;
-    } else if (btn.classList.contains('numpad-clear')) {
-      GameState.numpadValue = '';
-      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = '0';
-    } else if (btn.classList.contains('numpad-enter')) {
-      if (GameState.numpadValue !== '') {
-        submitAnswer(parseInt(GameState.numpadValue));
-      }
+// ─── Handle Answer ────────────────────────────────────────────────────────
+function handleOpponentAnswer(data) {
+  if (!GameState.isHost) return; // Only host processes answers
+  
+  const slot = GameState.slot;
+  const question = playerQuestions[slot].current;
+  
+  // Validate answer
+  const isCorrect = (data.submittedAnswer === question.answer);
+  const responseTimeMs = data.responseTimeMs || 0;
+  const responseTimeSec = Math.max(0.1, responseTimeMs / 1000);
+  
+  // Update stats
+  GameState.totalAnswers[slot]++;
+  GameState.totalResponseTime[slot] += responseTimeMs;
+  
+  let forceApplied = 0;
+  let nextQuestion = null;
+  
+  if (isCorrect) {
+    GameState.correctCounts[slot]++;
+    GameState.streaks[slot]++;
+    if (GameState.streaks[slot] > GameState.maxStreaks[slot]) {
+      GameState.maxStreaks[slot] = GameState.streaks[slot];
     }
+    
+    const force = MathEngine.calculateForce(responseTimeSec, GameState.difficulty, GameState.streaks[slot]);
+    forceApplied = force;
+    
+    // Apply force
+    if (slot === 'p1') GameState.ropePosition -= force;
+    else GameState.ropePosition += force;
+    GameState.scores[slot] += force;
+    
+    // Clamp
+    GameState.ropePosition = Math.max(-120, Math.min(120, GameState.ropePosition));
+    
+    // Generate new question
+    nextQuestion = generateNewQuestion(slot);
+  } else {
+    GameState.streaks[slot] = 0;
+    // No new question on wrong answer
+  }
+  
+  // Send result back to guest
+  PeerManager.send({
+    type: 'GAME_STATE',
+    isCorrect,
+    forceApplied,
+    responseTimeMs,
+    correctAnswer: question.answer,
+    ropePosition: GameState.ropePosition,
+    scores: GameState.scores,
+    streaks: GameState.streaks,
+    nextQuestion: nextQuestion ? {
+      questionId: nextQuestion.questionId,
+      prompt: nextQuestion.prompt,
+      options: nextQuestion.options,
+    } : null,
+    winnerId: checkWinner(),
   });
-});
-
-// Keyboard support
-document.addEventListener('keydown', (e) => {
-  if (!GameState.isPlaying || GameState.isStunned) return;
   
-  if (GameState.inputMode === 'numpad') {
-    if (e.key >= '0' && e.key <= '9') {
-      GameState.numpadValue += e.key;
-      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue;
-    } else if (e.key === 'Enter') {
-      if (GameState.numpadValue !== '') {
-        submitAnswer(parseInt(GameState.numpadValue));
-      }
-    } else if (e.key === 'Backspace') {
-      GameState.numpadValue = GameState.numpadValue.slice(0, -1);
-      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue || '0';
-    }
-  } else {
-    const num = parseInt(e.key);
-    if (num >= 1 && num <= 4) {
-      const btns = DOM.answerOptions?.querySelectorAll('.answer-btn');
-      if (btns && btns[num - 1]) {
-        submitAnswer(parseInt(btns[num - 1].textContent));
-      }
-    }
-  }
-});
-
-// ─── Answer Result ─────────────────────────────────────────────────────────
-function showAnswerResult(data) {
-  if (data.isCorrect) {
-    // Show success feedback
-    showFeedback('🎉', 'BENAR!', `+${data.forceApplied} pts`);
-    
-    // Play sound
-    if (window.SoundEngine) {
-      const streak = GameState.streaks[GameState.slot] || 0;
-      if (streak >= 3) {
-        SoundEngine.play('combo', streak); // Combo sound for streaks
-      } else {
-        SoundEngine.play('correct');
-      }
-      SoundEngine.play('pull');
-    }
-    
-    // Animate rope pull
-    const pullDir = GameState.slot === 'p1' ? 'left' : 'right';
-    animatePull(pullDir);
-    
-    // Floating score
-    const btn = document.querySelector('.answer-btn:active') || document.querySelector('.answer-btn');
-    if (btn) {
-      const rect = btn.getBoundingClientRect();
-      showFloatingScore(`+${data.forceApplied}`, rect.left + rect.width/2, rect.top);
-    }
-    
-    // Confetti for combos
-    const currentStreak = GameState.streaks[GameState.slot] || 0;
-    if (currentStreak >= 5) {
-      createConfetti('game-confetti', 20);
-    }
-  } else {
-    // Show stun effect
-    triggerStun();
-    
-    // Play wrong sound
-    if (window.SoundEngine) {
-      SoundEngine.play('wrong');
-      SoundEngine.play('stun');
-    }
+  // Update host's own display
+  updateGameStateLocal({
+    isCorrect,
+    forceApplied,
+    responseTimeMs,
+    correctAnswer: question.answer,
+    ropePosition: GameState.ropePosition,
+    scores: GameState.scores,
+    streaks: GameState.streaks,
+    nextQuestion: null, // Host doesn't need next question here
+  });
+  
+  // Check for game over
+  const winnerId = checkWinner();
+  if (winnerId) {
+    endMatch(winnerId);
   }
 }
 
-function showFeedback(icon, text, points) {
-  if (!DOM.feedbackOverlay) return;
+function handleGameState(data) {
+  // Guest receives game state from host after answering
+  updateGameStateLocal(data);
   
-  DOM.feedbackOverlay.querySelector('.feedback-icon').textContent = icon;
-  DOM.feedbackOverlay.querySelector('.feedback-text').textContent = text;
-  DOM.feedbackOverlay.querySelector('.feedback-points').textContent = points;
-  DOM.feedbackOverlay.classList.add('show');
-  
-  setTimeout(() => {
-    DOM.feedbackOverlay.classList.remove('show');
-  }, 1200);
-}
-
-function triggerStun() {
-  GameState.isStunned = true;
-  
-  if (DOM.stunOverlay) {
-    DOM.stunOverlay.classList.add('active');
+  if (data.isCorrect && data.nextQuestion) {
+    showQuestion(data.nextQuestion);
   }
   
-  document.body.style.animation = 'none';
-  document.body.offsetHeight;
-  document.body.style.animation = '';
-  
-  setTimeout(() => {
-    if (DOM.stunOverlay) DOM.stunOverlay.classList.remove('active');
-    GameState.isStunned = false;
-  }, 600);
-}
-
-function animatePull(direction) {
-  const arena = document.querySelector('.game-arena');
-  if (arena) {
-    arena.style.animation = `pullBounce${direction === 'left' ? 'Left' : 'Right'} 0.3s ease-out`;
-    setTimeout(() => {
-      arena.style.animation = '';
-    }, 300);
-  }
-  
-  // Update streak animation
-  const myStreak = GameState.slot === 'p1' ? DOM.p1Streak : DOM.p2Streak;
-  if (myStreak) {
-    myStreak.classList.add('hot');
-    setTimeout(() => myStreak.classList.remove('hot'), 500);
+  if (data.winnerId) {
+    endMatch(data.winnerId);
   }
 }
 
-// ─── Game State Update ─────────────────────────────────────────────────────
-function updateGameState(data) {
+function updateGameStateLocal(data) {
   if (data.ropePosition !== undefined) {
     updateRopePosition(data.ropePosition);
   }
   
-  if (data.lastAction) {
-    const action = data.lastAction;
-    const slot = action.playerId === GameState.playerId ? GameState.slot : 
-                 (GameState.slot === 'p1' ? 'p2' : 'p1');
-    
-    if (action.isCorrect) {
-      GameState.scores[slot] = (GameState.scores[slot] || 0) + action.forceApplied;
-      GameState.streaks[slot] = (GameState.streaks[slot] || 0) + 1;
-    } else {
-      GameState.streaks[slot] = 0;
-    }
-    
+  if (data.scores) {
+    GameState.scores = data.scores;
     updateScoreDisplay();
+  }
+  
+  if (data.streaks) {
+    GameState.streaks = data.streaks;
+    updateStreakDisplay();
+  }
+  
+  // Show feedback
+  if (data.isCorrect !== undefined) {
+    if (data.isCorrect) {
+      showFeedback('🎉', 'BENAR!', `+${data.forceApplied} pts`);
+      if (window.SoundEngine) {
+        const streak = GameState.streaks[GameState.slot] || 0;
+        SoundEngine.play(streak >= 3 ? 'combo' : 'correct');
+        SoundEngine.play('pull');
+      }
+    } else {
+      showFeedback('❌', 'SALAH!', `Jawaban: ${data.correctAnswer}`);
+      triggerStun();
+      if (window.SoundEngine) {
+        SoundEngine.play('wrong');
+        SoundEngine.play('stun');
+      }
+    }
   }
 }
 
 function updateScoreDisplay() {
   if (DOM.p1Score) DOM.p1Score.textContent = Math.round(GameState.scores.p1 || 0);
   if (DOM.p2Score) DOM.p2Score.textContent = Math.round(GameState.scores.p2 || 0);
-  
+}
+
+function updateStreakDisplay() {
   if (DOM.p1Streak) {
     DOM.p1Streak.querySelector('.streak-count').textContent = GameState.streaks.p1 || 0;
   }
@@ -725,68 +661,30 @@ function updateRopePosition(position) {
   GameState.ropePosition = position;
   
   if (DOM.ropeFlag) {
-    // Map -120..120 to 0%..100%
     const percent = ((position + 120) / 240) * 100;
-    const clamped = Math.max(5, Math.min(95, percent));
-    DOM.ropeFlag.style.left = `${clamped}%`;
+    DOM.ropeFlag.style.left = `${Math.max(5, Math.min(95, percent))}%`;
   }
   
   if (DOM.ropeIndicator) {
     const percent = ((position + 120) / 240) * 100;
     DOM.ropeIndicator.style.left = `${Math.max(0, Math.min(100, percent))}%`;
   }
-  
-  // Color the rope based on position
-  if (DOM.ropeLine) {
-    const absPos = Math.abs(position);
-    if (absPos > 60) {
-      DOM.ropeLine.style.boxShadow = `0 0 15px ${position < 0 ? 'var(--p1-color)' : 'var(--p2-color)'}`;
-    } else {
-      DOM.ropeLine.style.boxShadow = '0 2px 8px rgba(255, 192, 72, 0.5)';
-    }
-  }
 }
 
-// ─── Match Timer ───────────────────────────────────────────────────────────
-let matchTimerInterval = null;
-
-function startMatchTimer() {
-  if (matchTimerInterval) clearInterval(matchTimerInterval);
-  
-  matchTimerInterval = setInterval(() => {
-    if (!GameState.isPlaying) {
-      clearInterval(matchTimerInterval);
-      return;
-    }
-    
-    const elapsed = Math.floor((Date.now() - GameState.matchStartTime) / 1000);
-    const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
-    const seconds = (elapsed % 60).toString().padStart(2, '0');
-    if (DOM.matchTime) DOM.matchTime.textContent = `${minutes}:${seconds}`;
-  }, 1000);
+function checkWinner() {
+  if (GameState.ropePosition <= -GameState.winThreshold) return 'p1';
+  if (GameState.ropePosition >= GameState.winThreshold) return 'p2';
+  return null;
 }
 
-// ─── Ping Monitor ──────────────────────────────────────────────────────────
-function startPingMonitor() {
-  setInterval(() => {
-    GameState.lastPingTime = Date.now();
-    socket.emit('PING');
-  }, 5000);
-}
-
-socket.on('PONG', () => {
-  const ping = Date.now() - GameState.lastPingTime;
-  if (DOM.pingDisplay) DOM.pingDisplay.textContent = ping;
-});
-
-// ─── Match Over ────────────────────────────────────────────────────────────
-function showMatchOver(data) {
+function endMatch(winnerId) {
+  if (!GameState.isPlaying) return;
   GameState.isPlaying = false;
-  if (matchTimerInterval) clearInterval(matchTimerInterval);
-  if (timerBarInterval) clearInterval(timerBarInterval);
   
-  const isWinner = data.winnerId === GameState.playerId;
+  const duration = Math.floor((Date.now() - GameState.matchStartTime) / 1000);
+  const isWinner = winnerId === GameState.slot;
   
+  // Show match over screen
   if (DOM.resultTitle) {
     DOM.resultTitle.textContent = isWinner ? 'MENANG!' : 'KALAH!';
     DOM.resultTitle.style.color = isWinner ? 'var(--accent-warning)' : 'var(--accent-danger)';
@@ -798,50 +696,251 @@ function showMatchOver(data) {
       : 'Lawan lebih kuat kali ini. Coba lagi!';
   }
   
-  if (DOM.finalRopePos) DOM.finalRopePos.textContent = data.finalRopePosition;
-  if (DOM.finalDuration) DOM.finalDuration.textContent = `${data.durationSeconds}s`;
+  if (DOM.finalRopePos) DOM.finalRopePos.textContent = Math.round(GameState.ropePosition * 10) / 10;
+  if (DOM.finalDuration) DOM.finalDuration.textContent = `${duration}s`;
   
-  if (data.stats) {
-    updateMatchStats('p1', data.stats.p1, data.room?.players?.p1?.name || 'P1');
-    updateMatchStats('p2', data.stats.p2, data.room?.players?.p2?.name || 'P2');
-  }
+  // Update stats
+  updateMatchStats('p1', GameState.scores.p1, GameState.maxStreaks.p1, 
+    GameState.correctCounts.p1 / Math.max(1, GameState.totalAnswers.p1),
+    GameState.totalResponseTime.p1 / Math.max(1, GameState.totalAnswers.p1));
+  updateMatchStats('p2', GameState.scores.p2, GameState.maxStreaks.p2,
+    GameState.correctCounts.p2 / Math.max(1, GameState.totalAnswers.p2),
+    GameState.totalResponseTime.p2 / Math.max(1, GameState.totalAnswers.p2));
   
   showScreen('match-over');
   
-  if (isWinner) {
+  if (isWinner && DOM.confettiContainer) {
     setTimeout(() => createConfetti('confetti-container', 60), 500);
   }
+  
+  if (window.SoundEngine) SoundEngine.play(isWinner ? 'win' : 'lose');
 }
 
-function updateMatchStats(slot, stats, name) {
+function updateMatchStats(slot, score, maxStreak, accuracy, avgTime) {
   const nameEl = document.getElementById(`stats-${slot}-name`);
   const accEl = document.getElementById(`stats-${slot}-accuracy`);
   const timeEl = document.getElementById(`stats-${slot}-avgtime`);
   const forceEl = document.getElementById(`stats-${slot}-force`);
   const streakEl = document.getElementById(`stats-${slot}-streak`);
   
-  if (nameEl) nameEl.textContent = name;
-  if (accEl) accEl.textContent = `${Math.round((stats.accuracy || 0) * 100)}%`;
-  if (timeEl) timeEl.textContent = `${Math.round((stats.avgResponseTimeSec || 0) * 1000)}ms`;
-  if (forceEl) forceEl.textContent = Math.round((stats.totalForce || 0) * 10) / 10;
-  if (streakEl) streakEl.textContent = stats.highestStreak || 0;
+  if (nameEl) nameEl.textContent = slot === 'p1' ? GameState.playerName : 'Opponent';
+  if (accEl) accEl.textContent = `${Math.round(accuracy * 100)}%`;
+  if (timeEl) timeEl.textContent = `${Math.round(avgTime)}ms`;
+  if (forceEl) forceEl.textContent = Math.round(score * 10) / 10;
+  if (streakEl) streakEl.textContent = maxStreak;
 }
 
-// ─── Rematch & Navigation ──────────────────────────────────────────────────
+function handleMatchOver(data) {
+  endMatch(data.winnerId);
+}
+
+function handleRematch(data) {
+  if (data.accept) {
+    showScreen('waiting-room');
+  }
+}
+
+// ─── Feedback & Effects ────────────────────────────────────────────────────
+function showFeedback(icon, text, points) {
+  if (!DOM.feedbackOverlay) return;
+  DOM.feedbackOverlay.querySelector('.feedback-icon').textContent = icon;
+  DOM.feedbackOverlay.querySelector('.feedback-text').textContent = text;
+  DOM.feedbackOverlay.querySelector('.feedback-points').textContent = points;
+  DOM.feedbackOverlay.classList.add('show');
+  setTimeout(() => DOM.feedbackOverlay.classList.remove('show'), 1200);
+}
+
+function triggerStun() {
+  GameState.isStunned = true;
+  if (DOM.stunOverlay) DOM.stunOverlay.classList.add('active');
+  setTimeout(() => {
+    if (DOM.stunOverlay) DOM.stunOverlay.classList.remove('active');
+    GameState.isStunned = false;
+  }, 600);
+}
+
+// ─── Match Timer ───────────────────────────────────────────────────────────
+let matchTimerInterval = null;
+
+function startMatchTimer() {
+  if (matchTimerInterval) clearInterval(matchTimerInterval);
+  matchTimerInterval = setInterval(() => {
+    if (!GameState.isPlaying) { clearInterval(matchTimerInterval); return; }
+    const elapsed = Math.floor((Date.now() - GameState.matchStartTime) / 1000);
+    const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const seconds = (elapsed % 60).toString().padStart(2, '0');
+    if (DOM.matchTime) DOM.matchTime.textContent = `${minutes}:${seconds}`;
+  }, 1000);
+}
+
+// ─── Difficulty Selection ─────────────────────────────────────────────────
+if (DOM.diffBtns) {
+  DOM.diffBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      DOM.diffBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      GameState.difficulty = btn.dataset.diff;
+    });
+  });
+}
+
+// ─── Menu Event Listeners ──────────────────────────────────────────────────
+if (DOM.btnQuickMatch) {
+  DOM.btnQuickMatch.addEventListener('click', () => {
+    if (window.SoundEngine) SoundEngine.play('click');
+    // Quick match not available in P2P mode - use create/join
+    showModal(DOM.createRoomModal);
+  });
+}
+
+if (DOM.btnCreateRoom) {
+  DOM.btnCreateRoom.addEventListener('click', () => {
+    if (window.SoundEngine) SoundEngine.play('click');
+    showModal(DOM.createRoomModal);
+  });
+}
+
+if (DOM.btnJoinRoom) {
+  DOM.btnJoinRoom.addEventListener('click', () => {
+    if (window.SoundEngine) SoundEngine.play('click');
+    showModal(DOM.joinRoomModal);
+  });
+}
+
+if (DOM.btnConfirmCreate) {
+  DOM.btnConfirmCreate.addEventListener('click', async () => {
+    if (window.SoundEngine) SoundEngine.play('click');
+    GameState.playerName = DOM.playerName.value || GameState.playerName;
+    GameState.isHost = true;
+    GameState.slot = 'p1';
+    
+    hideModal(DOM.createRoomModal);
+    updateConnectionStatus('connecting', 'Membuat room...');
+    
+    try {
+      const result = await PeerManager.createRoom();
+      GameState.roomId = result.roomCode;
+      if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = result.roomCode;
+      if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
+    } catch (err) {
+      console.error('Failed to create room:', err);
+      alert('Gagal membuat room. Coba lagi.');
+    }
+  });
+}
+
+if (DOM.btnCancelCreate) {
+  DOM.btnCancelCreate.addEventListener('click', () => hideModal(DOM.createRoomModal));
+}
+
+if (DOM.btnConfirmJoin) {
+  DOM.btnConfirmJoin.addEventListener('click', async () => {
+    if (window.SoundEngine) SoundEngine.play('click');
+    GameState.playerName = DOM.joinPlayerName.value || GameState.playerName;
+    GameState.isHost = false;
+    GameState.slot = 'p2';
+    
+    const code = DOM.roomCode.value;
+    if (!code || code.length !== 6) {
+      alert('Kode room harus 6 digit!');
+      return;
+    }
+    
+    hideModal(DOM.joinRoomModal);
+    updateConnectionStatus('connecting', 'Menghubungkan...');
+    
+    try {
+      await PeerManager.joinRoom(code);
+      GameState.roomId = code;
+    } catch (err) {
+      console.error('Failed to join room:', err);
+      alert('Gagal bergabung ke room. Pastikan kode benar dan host sudah membuat room.');
+    }
+  });
+}
+
+if (DOM.btnCancelJoin) {
+  DOM.btnCancelJoin.addEventListener('click', () => hideModal(DOM.joinRoomModal));
+}
+
+// ─── Waiting Room ──────────────────────────────────────────────────────────
+if (DOM.btnLeaveRoom) {
+  DOM.btnLeaveRoom.addEventListener('click', () => {
+    PeerManager.disconnect();
+    GameState.roomId = null;
+    GameState.slot = null;
+    showScreen('main-menu');
+  });
+}
+
+if (DOM.btnCopyCode) {
+  DOM.btnCopyCode.addEventListener('click', () => {
+    const code = DOM.roomCodeDisplay?.textContent;
+    if (code && code !== '------') {
+      navigator.clipboard.writeText(code).then(() => {
+        DOM.btnCopyCode.textContent = '✅ Copied!';
+        setTimeout(() => { DOM.btnCopyCode.textContent = '📋 Copy'; }, 2000);
+      });
+    }
+  });
+}
+
+// ─── Match Over ────────────────────────────────────────────────────────────
 if (DOM.btnRematch) {
   DOM.btnRematch.addEventListener('click', () => {
-    socket.emit('REMATCH_REQUEST', {});
+    PeerManager.send({ type: 'REMATCH', accept: true });
+    showScreen('waiting-room');
   });
 }
 
 if (DOM.btnBackMenu) {
   DOM.btnBackMenu.addEventListener('click', () => {
+    PeerManager.disconnect();
     GameState.roomId = null;
     GameState.slot = null;
     GameState.isPlaying = false;
     showScreen('main-menu');
   });
 }
+
+// ─── Numpad Handling ───────────────────────────────────────────────────────
+document.querySelectorAll('.numpad-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (GameState.isStunned) return;
+    const num = btn.dataset.num;
+    if (num !== undefined) {
+      GameState.numpadValue += num;
+      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue;
+    } else if (btn.classList.contains('numpad-clear')) {
+      GameState.numpadValue = '';
+      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = '0';
+    } else if (btn.classList.contains('numpad-enter')) {
+      if (GameState.numpadValue !== '') submitAnswer(parseInt(GameState.numpadValue));
+    }
+  });
+});
+
+// Keyboard support
+document.addEventListener('keydown', (e) => {
+  if (!GameState.isPlaying || GameState.isStunned) return;
+  if (GameState.inputMode === 'numpad') {
+    if (e.key >= '0' && e.key <= '9') {
+      GameState.numpadValue += e.key;
+      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue;
+    } else if (e.key === 'Enter') {
+      if (GameState.numpadValue !== '') submitAnswer(parseInt(GameState.numpadValue));
+    } else if (e.key === 'Backspace') {
+      GameState.numpadValue = GameState.numpadValue.slice(0, -1);
+      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue || '0';
+    }
+  } else {
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= 4) {
+      const btns = DOM.answerOptions?.querySelectorAll('.answer-btn');
+      if (btns && btns[num - 1]) submitAnswer(parseInt(btns[num - 1].textContent));
+    }
+  }
+});
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 showScreen('main-menu');
@@ -860,7 +959,5 @@ if (soundToggle) {
 
 // Simulate online count
 setInterval(() => {
-  if (DOM.onlineCount) {
-    DOM.onlineCount.textContent = Math.floor(Math.random() * 50) + 10;
-  }
+  if (DOM.onlineCount) DOM.onlineCount.textContent = Math.floor(Math.random() * 50) + 10;
 }, 5000);
