@@ -760,6 +760,7 @@ function submitAnswer(answer) {
     // Send state to guest
     PeerManager.send({
       type: 'GAME_STATE',
+      answeredBy: 'p1',
       isCorrect,
       forceApplied,
       responseTimeMs: responseTime,
@@ -831,6 +832,7 @@ function handleOpponentAnswer(data) {
   // Send result back to guest
   PeerManager.send({
     type: 'GAME_STATE',
+    answeredBy: 'p2',
     isCorrect,
     forceApplied,
     responseTimeMs,
@@ -877,31 +879,39 @@ function updateGameStateLocal(data) {
     updateStreakDisplay();
   }
   
-  if (data.isCorrect !== undefined) {
-    if (data.isCorrect) {
-      showFeedback('correct', 'BENAR!', `+${data.forceApplied} pts`);
-      triggerPullAnimation(GameState.slot, data.forceApplied);
-      if (window.SoundEngine) {
-        const streak = GameState.streaks[GameState.slot] || 0;
-        SoundEngine.play(streak >= 3 ? 'combo' : 'correct', streak);
-        SoundEngine.play('pull');
-        if (streak >= 5) SoundEngine.play('bigCombo');
+  if (data.isCorrect !== undefined && data.answeredBy) {
+    if (data.answeredBy === GameState.slot) {
+      if (data.isCorrect) {
+        showFeedback('correct', 'BENAR!', `+${data.forceApplied} pts`);
+        triggerPullAnimation(GameState.slot, data.forceApplied);
+        if (window.SoundEngine) {
+          const streak = GameState.streaks[GameState.slot] || 0;
+          SoundEngine.play(streak >= 3 ? 'combo' : 'correct', streak);
+          SoundEngine.play('pull');
+          if (streak >= 5) SoundEngine.play('bigCombo');
+        }
+        
+        const currentStreak = GameState.streaks[GameState.slot] || 0;
+        if (currentStreak >= 3) {
+          const rect = DOM.questionPrompt?.getBoundingClientRect();
+          if (rect) createSparks(rect.left + rect.width / 2, rect.top, 8, '#00d2a0');
+        }
+        if (currentStreak >= 5) createConfetti('game-confetti', 15);
+      } else {
+        showFeedback('wrong', 'SALAH!', `Jawaban: ${data.correctAnswer}`);
+        triggerStun();
+        if (window.SoundEngine) {
+          SoundEngine.play('wrong');
+          SoundEngine.play('screenShake');
+        }
+        triggerScreenShake('medium');
       }
-      
-      const currentStreak = GameState.streaks[GameState.slot] || 0;
-      if (currentStreak >= 3) {
-        const rect = DOM.questionPrompt?.getBoundingClientRect();
-        if (rect) createSparks(rect.left + rect.width / 2, rect.top, 8, '#00d2a0');
-      }
-      if (currentStreak >= 5) createConfetti('game-confetti', 15);
     } else {
-      showFeedback('wrong', 'SALAH!', `Jawaban: ${data.correctAnswer}`);
-      triggerStun();
-      if (window.SoundEngine) {
-        SoundEngine.play('wrong');
-        SoundEngine.play('screenShake');
+      // It was the opponent's answer
+      if (data.isCorrect) {
+        triggerPullAnimation(data.answeredBy, data.forceApplied);
+        if (window.SoundEngine) SoundEngine.play('ropeCreak');
       }
-      triggerScreenShake('medium');
     }
   }
 }
