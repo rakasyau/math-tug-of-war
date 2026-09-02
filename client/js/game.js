@@ -93,8 +93,6 @@ const DOM = {
   finalRopePos: document.getElementById('final-rope-pos'),
   finalDuration: document.getElementById('final-duration'),
   confettiContainer: document.getElementById('confetti-container'),
-  statsP1: document.getElementById('stats-p1'),
-  statsP2: document.getElementById('stats-p2'),
   btnRematch: document.getElementById('btn-rematch'),
   btnBackMenu: document.getElementById('btn-back-menu'),
   
@@ -350,7 +348,6 @@ function startGame() {
       type: 'GAME_START',
       settings: { difficulty: GameState.difficulty, winThreshold: GameState.winThreshold },
       question: { questionId: q2.questionId, prompt: q2.prompt, options: q2.options },
-      hostQuestion: { questionId: q1.questionId, prompt: q1.prompt, options: q1.options },
     });
   }
   
@@ -476,53 +473,118 @@ function submitAnswer(answer) {
     document.querySelectorAll('.answer-btn').forEach(btn => btn.disabled = true);
   }
   
-  PeerManager.send({
-    type: 'ANSWER',
-    questionId: GameState.currentQuestion.questionId,
-    submittedAnswer: answer,
-    clientTimestamp: Date.now(),
-    responseTimeMs: responseTime,
-  });
+  if (GameState.isHost) {
+    // Host validates locally
+    const question = playerQuestions.p1.current;
+    const isCorrect = (answer === question.answer);
+    const responseTimeSec = Math.max(0.1, responseTime / 1000);
+    
+    GameState.totalAnswers.p1++;
+    GameState.totalResponseTime.p1 += responseTime;
+    
+    let forceApplied = 0;
+    let nextQuestion = null;
+    
+    if (isCorrect) {
+      GameState.correctCounts.p1++;
+      GameState.streaks.p1++;
+      if (GameState.streaks.p1 > GameState.maxStreaks.p1) GameState.maxStreaks.p1 = GameState.streaks.p1;
+      
+      const force = MathEngine.calculateForce(responseTimeSec, GameState.difficulty, GameState.streaks.p1);
+      forceApplied = force;
+      GameState.ropePosition -= force;
+      GameState.scores.p1 += force;
+      GameState.ropePosition = Math.max(-120, Math.min(120, GameState.ropePosition));
+      nextQuestion = generateNewQuestion('p1');
+    } else {
+      GameState.streaks.p1 = 0;
+    }
+    
+    // Show feedback to host
+    if (isCorrect) {
+      showFeedback('🎉', 'BENAR!', `+${forceApplied} pts`);
+      if (window.SoundEngine) {
+        SoundEngine.play(GameState.streaks.p1 >= 3 ? 'combo' : 'correct');
+        SoundEngine.play('pull');
+      }
+    } else {
+      showFeedback('❌', 'SALAH!', `Jawaban: ${question.answer}`);
+      triggerStun();
+      if (window.SoundEngine) {
+        SoundEngine.play('wrong');
+        SoundEngine.play('stun');
+      }
+    }
+    
+    // Update host UI
+    updateRopePosition(GameState.ropePosition);
+    updateScoreDisplay();
+    updateStreakDisplay();
+    
+    // Show next question if correct
+    if (nextQuestion) {
+      setTimeout(() => showQuestion(nextQuestion), 1000);
+    }
+    
+    // Send to guest
+    PeerManager.send({
+      type: 'GAME_STATE',
+      isCorrect,
+      forceApplied,
+      responseTimeMs: responseTime,
+      correctAnswer: question.answer,
+      ropePosition: GameState.ropePosition,
+      scores: GameState.scores,
+      streaks: GameState.streaks,
+      nextQuestion: null,
+      winnerId: checkWinner(),
+    });
+    
+    const winnerId = checkWinner();
+    if (winnerId) endMatch(winnerId);
+  } else {
+    // Guest sends to host for validation
+    PeerManager.send({
+      type: 'ANSWER',
+      questionId: GameState.currentQuestion.questionId,
+      submittedAnswer: answer,
+      clientTimestamp: Date.now(),
+      responseTimeMs: responseTime,
+    });
+  }
 }
 
-// ─── Handle Answer ────────────────────────────────────────────────────────
+// ─── Handle Answer (Host receives from Guest) ─────────────────────────────
 function handleOpponentAnswer(data) {
   if (!GameState.isHost) return;
   
-  const slot = GameState.slot;
-  const question = playerQuestions[slot].current;
-  
+  const question = playerQuestions.p2.current;
   const isCorrect = (data.submittedAnswer === question.answer);
   const responseTimeMs = data.responseTimeMs || 0;
   const responseTimeSec = Math.max(0.1, responseTimeMs / 1000);
   
-  GameState.totalAnswers[slot]++;
-  GameState.totalResponseTime[slot] += responseTimeMs;
+  GameState.totalAnswers.p2++;
+  GameState.totalResponseTime.p2 += responseTimeMs;
   
   let forceApplied = 0;
   let nextQuestion = null;
   
   if (isCorrect) {
-    GameState.correctCounts[slot]++;
-    GameState.streaks[slot]++;
-    if (GameState.streaks[slot] > GameState.maxStreaks[slot]) {
-      GameState.maxStreaks[slot] = GameState.streaks[slot];
-    }
+    GameState.correctCounts.p2++;
+    GameState.streaks.p2++;
+    if (GameState.streaks.p2 > GameState.maxStreaks.p2) GameState.maxStreaks.p2 = GameState.streaks.p2;
     
-    const force = MathEngine.calculateForce(responseTimeSec, GameState.difficulty, GameState.streaks[slot]);
+    const force = MathEngine.calculateForce(responseTimeSec, GameState.difficulty, GameState.streaks.p2);
     forceApplied = force;
-    
-    if (slot === 'p1') GameState.ropePosition -= force;
-    else GameState.ropePosition += force;
-    GameState.scores[slot] += force;
-    
+    GameState.ropePosition += force;
+    GameState.scores.p2 += force;
     GameState.ropePosition = Math.max(-120, Math.min(120, GameState.ropePosition));
-    
-    nextQuestion = generateNewQuestion(slot);
+    nextQuestion = generateNewQuestion('p2');
   } else {
-    GameState.streaks[slot] = 0;
+    GameState.streaks.p2 = 0;
   }
   
+  // Send result back to guest
   PeerManager.send({
     type: 'GAME_STATE',
     isCorrect,
@@ -540,21 +602,8 @@ function handleOpponentAnswer(data) {
     winnerId: checkWinner(),
   });
   
-  updateGameStateLocal({
-    isCorrect,
-    forceApplied,
-    responseTimeMs,
-    correctAnswer: question.answer,
-    ropePosition: GameState.ropePosition,
-    scores: GameState.scores,
-    streaks: GameState.streaks,
-    nextQuestion: null,
-  });
-  
   const winnerId = checkWinner();
-  if (winnerId) {
-    endMatch(winnerId);
-  }
+  if (winnerId) endMatch(winnerId);
 }
 
 function handleGameState(data) {
@@ -592,6 +641,9 @@ function updateGameStateLocal(data) {
         SoundEngine.play(streak >= 3 ? 'combo' : 'correct');
         SoundEngine.play('pull');
       }
+      
+      const currentStreak = GameState.streaks[GameState.slot] || 0;
+      if (currentStreak >= 5) createConfetti('game-confetti', 20);
     } else {
       showFeedback('❌', 'SALAH!', `Jawaban: ${data.correctAnswer}`);
       triggerStun();
@@ -609,12 +661,8 @@ function updateScoreDisplay() {
 }
 
 function updateStreakDisplay() {
-  if (DOM.p1Streak) {
-    DOM.p1Streak.querySelector('.streak-count').textContent = GameState.streaks.p1 || 0;
-  }
-  if (DOM.p2Streak) {
-    DOM.p2Streak.querySelector('.streak-count').textContent = GameState.streaks.p2 || 0;
-  }
+  if (DOM.p1Streak) DOM.p1Streak.querySelector('.streak-count').textContent = GameState.streaks.p1 || 0;
+  if (DOM.p2Streak) DOM.p2Streak.querySelector('.streak-count').textContent = GameState.streaks.p2 || 0;
 }
 
 function updateRopePosition(position) {
@@ -733,7 +781,6 @@ function startMatchTimer() {
 
 // ─── Toggle Buttons ────────────────────────────────────────────────────────
 function setupToggleButtons() {
-  // Input mode toggle
   if (DOM.inputModeGroup) {
     const btns = DOM.inputModeGroup.querySelectorAll('.toggle-btn');
     btns.forEach(btn => {
@@ -748,7 +795,6 @@ function setupToggleButtons() {
     });
   }
   
-  // Win threshold toggle
   if (DOM.thresholdGroup) {
     const btns = DOM.thresholdGroup.querySelectorAll('.toggle-btn');
     btns.forEach(btn => {
@@ -804,7 +850,6 @@ if (DOM.btnConfirmCreate) {
     GameState.isHost = true;
     GameState.slot = 'p1';
     
-    // Get selected values from hidden inputs
     if (DOM.inputMode) GameState.inputMode = DOM.inputMode.value;
     if (DOM.winThreshold) GameState.winThreshold = parseInt(DOM.winThreshold.value);
     
@@ -818,7 +863,7 @@ if (DOM.btnConfirmCreate) {
       if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
     } catch (err) {
       console.error('Failed to create room:', err);
-      alert('Gagal membuat room. Coba lagi.');
+      alert('Gagal membuat room: ' + err.message);
     }
   });
 }
@@ -848,7 +893,7 @@ if (DOM.btnConfirmJoin) {
       GameState.roomId = code;
     } catch (err) {
       console.error('Failed to join room:', err);
-      alert('Gagal bergabung ke room. Pastikan kode benar dan host sudah membuat room.');
+      alert('Gagal bergabung ke room: ' + err.message);
     }
   });
 }
