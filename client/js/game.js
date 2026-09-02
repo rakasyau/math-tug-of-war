@@ -349,7 +349,11 @@ function startGame() {
   if (GameState.isHost) {
     PeerManager.send({
       type: 'GAME_START',
-      settings: { difficulty: GameState.difficulty, winThreshold: GameState.winThreshold },
+      settings: { 
+        difficulty: GameState.difficulty, 
+        winThreshold: GameState.winThreshold,
+        inputMode: GameState.inputMode 
+      },
       question: { questionId: q2.questionId, prompt: q2.prompt, options: q2.options },
     });
   }
@@ -362,6 +366,7 @@ function handleGameStart(data) {
   
   GameState.difficulty = data.settings.difficulty;
   GameState.winThreshold = data.settings.winThreshold;
+  GameState.inputMode = data.settings.inputMode || 'multiple_choice';
   
   const question = data.question;
   playerQuestions.p2.current = {
