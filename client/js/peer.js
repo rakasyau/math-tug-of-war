@@ -24,7 +24,17 @@ const PeerManager = (() => {
       setTimeout(() => resolve({ roomCode }), 500);
       
       // Create peer in background
-      peer = new Peer('mtow-' + roomCode);
+      const peerConfig = {
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+          ]
+        }
+      };
+      peer = new Peer('mtow-' + roomCode, peerConfig);
       
       peer.on('open', (id) => {
         console.log('[PEER] Host ready, id:', id);
@@ -62,7 +72,17 @@ const PeerManager = (() => {
       setTimeout(() => resolve({ roomCode: code }), 500);
       
       // Create peer and connect in background
-      peer = new Peer();
+      const peerConfig = {
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+          ]
+        }
+      };
+      peer = new Peer(peerConfig);
       
       peer.on('open', () => {
         console.log('[PEER] Guest ready, connecting to host...');
