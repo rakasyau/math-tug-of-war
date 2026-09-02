@@ -523,7 +523,7 @@ function submitAnswer(answer) {
     
     // Show next question if correct
     if (nextQuestion) {
-      setTimeout(() => showQuestion(nextQuestion), 1000);
+      showQuestion(nextQuestion);
     }
     
     // Send to guest
