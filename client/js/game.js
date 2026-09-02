@@ -519,6 +519,12 @@ function submitAnswer(answer) {
       }
     }
     
+    // Re-enable buttons after stun
+    setTimeout(() => {
+      document.querySelectorAll('.answer-btn').forEach(btn => btn.disabled = false);
+    }, 600);
+    
+    
     // Update host UI
     updateRopePosition(GameState.ropePosition);
     updateScoreDisplay();
@@ -765,6 +771,8 @@ function triggerStun() {
   setTimeout(() => {
     if (DOM.stunOverlay) DOM.stunOverlay.classList.remove('active');
     GameState.isStunned = false;
+    // Re-enable all answer buttons
+    document.querySelectorAll('.answer-btn').forEach(btn => btn.disabled = false);
   }, 600);
 }
 
