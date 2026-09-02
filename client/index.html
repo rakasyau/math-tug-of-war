@@ -458,9 +458,9 @@
     </div>
 
     <!-- Connection Status -->
-    <div id="connection-status" class="connection-status connecting">
+    <div id="connection-status" class="connection-status ready">
       <span class="status-dot"></span>
-      <span class="status-text">Menghubungkan...</span>
+      <span class="status-text">Siap</span>
     </div>
     
     <!-- Sound Toggle -->
@@ -474,5 +474,14 @@
   <script src="js/particles.js"></script>
   <script src="js/peer.js"></script>
   <script src="js/game.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const statusEl = document.getElementById('connection-status');
+      if (statusEl) {
+        statusEl.className = 'connection-status ready';
+        statusEl.querySelector('.status-text').textContent = 'Siap';
+      }
+    });
+  </script>
 </body>
 </html>

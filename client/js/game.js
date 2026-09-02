@@ -859,14 +859,20 @@ if (DOM.btnConfirmCreate) {
     hideModal(DOM.createRoomModal);
     updateConnectionStatus('connecting', 'Membuat room...');
     
+    console.log('[GAME] Creating room...');
+    
     try {
       const result = await PeerManager.createRoom();
+      console.log('[GAME] Room code generated:', result.roomCode);
       GameState.roomId = result.roomCode;
       if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = result.roomCode;
       if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
+      showScreen('waiting-room');
+      updateConnectionStatus('connected', 'Menunggu lawan...');
     } catch (err) {
-      console.error('Failed to create room:', err);
-      alert('Gagal membuat room: ' + err.message);
+      console.error('[GAME] Failed to create room:', err);
+      alert('Gagal membuat room: ' + err.message + '\n\nPastikan koneksi internet stabil.');
+      updateConnectionStatus('disconnected', 'Gagal membuat room');
     }
   });
 }
@@ -891,12 +897,20 @@ if (DOM.btnConfirmJoin) {
     hideModal(DOM.joinRoomModal);
     updateConnectionStatus('connecting', 'Menghubungkan...');
     
+    console.log('[GAME] Joining room', code);
+    
     try {
       await PeerManager.joinRoom(code);
       GameState.roomId = code;
+      console.log('[GAME] Join request sent, waiting for host...');
+      if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = code;
+      if (DOM.p2NameWaiting) DOM.p2NameWaiting.textContent = GameState.playerName;
+      showScreen('waiting-room');
+      updateConnectionStatus('connecting', 'Menunggu host...');
     } catch (err) {
-      console.error('Failed to join room:', err);
+      console.error('[GAME] Failed to join room:', err);
       alert('Gagal bergabung ke room: ' + err.message);
+      updateConnectionStatus('disconnected', 'Gagal bergabung');
     }
   });
 }
