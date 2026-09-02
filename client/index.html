@@ -13,13 +13,13 @@
       <div class="menu-container">
         <h1>🧮 Math Tug of War</h1>
         <p class="subtitle">Tarik Tambang Matematika Online</p>
-        
+
         <div class="menu-buttons">
-          <button id="btn-quick-match" class="btn btn-primary">⚡ Quick Match</button>
-          <button id="btn-create-room" class="btn btn-secondary">🏠 Buat Room</button>
-          <button id="btn-join-room" class="btn btn-secondary">🚪 Gabung Room</button>
+          <button type="button" id="btn-quick-match" class="btn btn-primary">⚡ Quick Match</button>
+          <button type="button" id="btn-create-room" class="btn btn-secondary">🏠 Buat Room</button>
+          <button type="button" id="btn-join-room" class="btn btn-secondary">🚪 Gabung Room</button>
         </div>
-        
+
         <div class="difficulty-select">
           <label>Tingkat Kesulitan:</label>
           <select id="difficulty">
@@ -55,8 +55,8 @@
           </select>
         </div>
         <div class="modal-buttons">
-          <button id="btn-confirm-create" class="btn btn-primary">Buat Room</button>
-          <button id="btn-cancel-create" class="btn btn-cancel">Batal</button>
+          <button type="button" id="btn-confirm-create" class="btn btn-primary">Buat Room</button>
+          <button type="button" id="btn-cancel-create" class="btn btn-cancel">Batal</button>
         </div>
       </div>
     </div>
@@ -74,8 +74,8 @@
           <input type="text" id="room-code" placeholder="Contoh: 782910" maxlength="6" pattern="[0-9]*">
         </div>
         <div class="modal-buttons">
-          <button id="btn-confirm-join" class="btn btn-primary">Gabung</button>
-          <button id="btn-cancel-join" class="btn btn-cancel">Batal</button>
+          <button type="button" id="btn-confirm-join" class="btn btn-primary">Gabung</button>
+          <button type="button" id="btn-cancel-join" class="btn btn-cancel">Batal</button>
         </div>
       </div>
     </div>
@@ -101,8 +101,8 @@
           <p>Bagikan kode ini ke lawanmu:</p>
           <div class="code-display" id="share-code">------</div>
         </div>
-        <button id="btn-ready" class="btn btn-primary">READY</button>
-        <button id="btn-leave-room" class="btn btn-cancel">Keluar</button>
+        <button type="button" id="btn-ready" class="btn btn-primary">READY</button>
+        <button type="button" id="btn-leave-room" class="btn btn-cancel">Keluar</button>
       </div>
     </div>
 
@@ -160,18 +160,18 @@
         <div class="numpad" id="numpad" style="display: none;">
           <div class="numpad-display" id="numpad-display">0</div>
           <div class="numpad-grid">
-            <button class="numpad-btn" data-num="1">1</button>
-            <button class="numpad-btn" data-num="2">2</button>
-            <button class="numpad-btn" data-num="3">3</button>
-            <button class="numpad-btn" data-num="4">4</button>
-            <button class="numpad-btn" data-num="5">5</button>
-            <button class="numpad-btn" data-num="6">6</button>
-            <button class="numpad-btn" data-num="7">7</button>
-            <button class="numpad-btn" data-num="8">8</button>
-            <button class="numpad-btn" data-num="9">9</button>
-            <button class="numpad-btn numpad-clear">C</button>
-            <button class="numpad-btn" data-num="0">0</button>
-            <button class="numpad-btn numpad-enter">✓</button>
+            <button type="button" class="numpad-btn" data-num="1">1</button>
+            <button type="button" class="numpad-btn" data-num="2">2</button>
+            <button type="button" class="numpad-btn" data-num="3">3</button>
+            <button type="button" class="numpad-btn" data-num="4">4</button>
+            <button type="button" class="numpad-btn" data-num="5">5</button>
+            <button type="button" class="numpad-btn" data-num="6">6</button>
+            <button type="button" class="numpad-btn" data-num="7">7</button>
+            <button type="button" class="numpad-btn" data-num="8">8</button>
+            <button type="button" class="numpad-btn" data-num="9">9</button>
+            <button type="button" class="numpad-btn numpad-clear">C</button>
+            <button type="button" class="numpad-btn" data-num="0">0</button>
+            <button type="button" class="numpad-btn numpad-enter">✓</button>
           </div>
         </div>
       </div>
@@ -181,8 +181,8 @@
     <div id="match-over" class="screen">
       <div class="match-result">
         <h1 id="result-title">MENANG!</h1>
-        <div class="result-subtitle" id="result-subtitle">Kamu memenangkan pertandingan!</div>
-        
+        <p class="result-subtitle" id="result-subtitle">Kamu memenangkan pertandingan!</p>
+
         <div class="final-stats">
           <div class="stat-row">
             <span class="stat-label">Posisi Tali Akhir:</span>
@@ -196,14 +196,14 @@
 
         <div class="player-stats">
           <div class="stats-card" id="stats-p1">
-            <h3 id="stats-p1-name">Player 1</h3>
+            <h2 class="stats-card-title" id="stats-p1-name">Player 1</h2>
             <div class="stat-item">Akurasi: <span id="stats-p1-accuracy">--%</span></div>
             <div class="stat-item">Rata-rata Waktu: <span id="stats-p1-avgtime">--ms</span></div>
             <div class="stat-item">Total Force: <span id="stats-p1-force">--</span></div>
             <div class="stat-item">Max Streak: <span id="stats-p1-streak">--</span></div>
           </div>
           <div class="stats-card" id="stats-p2">
-            <h3 id="stats-p2-name">Player 2</h3>
+            <h2 class="stats-card-title" id="stats-p2-name">Player 2</h2>
             <div class="stat-item">Akurasi: <span id="stats-p2-accuracy">--%</span></div>
             <div class="stat-item">Rata-rata Waktu: <span id="stats-p2-avgtime">--ms</span></div>
             <div class="stat-item">Total Force: <span id="stats-p2-force">--</span></div>
@@ -212,8 +212,8 @@
         </div>
 
         <div class="result-buttons">
-          <button id="btn-rematch" class="btn btn-primary">🔄 Main Lagi</button>
-          <button id="btn-back-menu" class="btn btn-secondary">🏠 Kembali ke Menu</button>
+          <button type="button" id="btn-rematch" class="btn btn-primary">🔄 Main Lagi</button>
+          <button type="button" id="btn-back-menu" class="btn btn-secondary">🏠 Kembali ke Menu</button>
         </div>
       </div>
     </div>

@@ -348,7 +348,7 @@ function startTimerBar() {
     const remaining = Math.max(0, 1 - (elapsed / totalDuration));
     const percent = remaining * 100;
     
-    DOM.timerBar.style.width = `${percent}%`;
+    DOM.timerBar.style.transform = `scaleX(${remaining})`;
     
     // Update force potential display
     const responseTimeSec = elapsed / 1000;
