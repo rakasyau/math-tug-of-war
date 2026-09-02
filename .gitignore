@@ -28,3 +28,12 @@ dist/
 build/
 
 .vercel
+
+# AI Agent Skills & Config
+.agent/
+.agents/
+.gemini/
+.hermes/
+.opencode/
+.codex/
+.impeccable/

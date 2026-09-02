@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   MATH TUG OF WAR — P2P Game Client (Fixed & Optimized)
+   MATH TUG OF WAR — P2P Game Client (Overhauled)
+   Fixed logic, SVG icons, countdown, enhanced rope animation, screen shake
    ═══════════════════════════════════════════════════════════════════════════ */
 
 // ─── Game State ────────────────────────────────────────────────────────────
@@ -24,6 +25,7 @@ const GameState = {
   numpadValue: '',
   difficulty: 'medium',
   winThreshold: 100,
+  opponentName: 'Lawan',
 };
 
 // ─── DOM Elements ──────────────────────────────────────────────────────────
@@ -34,12 +36,13 @@ const DOM = {
   matchOver: document.getElementById('match-over'),
   createRoomModal: document.getElementById('create-room-modal'),
   joinRoomModal: document.getElementById('join-room-modal'),
+  countdownOverlay: document.getElementById('countdown-overlay'),
+  countdownNumber: document.getElementById('countdown-number'),
   
   btnQuickMatch: document.getElementById('btn-quick-match'),
   btnCreateRoom: document.getElementById('btn-create-room'),
   btnJoinRoom: document.getElementById('btn-join-room'),
   diffBtns: document.querySelectorAll('.diff-btn'),
-  onlineCount: document.getElementById('online-count'),
   
   playerName: document.getElementById('player-name'),
   inputModeGroup: document.getElementById('inputModeGroup'),
@@ -72,9 +75,15 @@ const DOM = {
   p2NameGame: document.getElementById('p2-name-game'),
   p1Streak: document.getElementById('p1-streak'),
   p2Streak: document.getElementById('p2-streak'),
+  gameArena: document.getElementById('game-arena'),
+  ropeTrack: document.getElementById('rope-track'),
   ropeLine: document.getElementById('rope-line'),
   ropeFlag: document.getElementById('rope-flag'),
   ropeIndicator: document.getElementById('rope-indicator'),
+  ropeDangerLeft: document.getElementById('rope-danger-left'),
+  ropeDangerRight: document.getElementById('rope-danger-right'),
+  zoneLabelLeft: document.getElementById('zone-left-label'),
+  zoneLabelRight: document.getElementById('zone-right-label'),
   questionPrompt: document.getElementById('question-prompt'),
   questionCategory: document.getElementById('question-category'),
   timerBar: document.getElementById('timer-bar'),
@@ -87,17 +96,83 @@ const DOM = {
   
   feedbackOverlay: document.getElementById('feedback-overlay'),
   stunOverlay: document.getElementById('stun-overlay'),
+  stunIcon: document.getElementById('stun-icon'),
   
   resultTitle: document.getElementById('result-title'),
   resultSubtitle: document.getElementById('result-subtitle'),
   finalRopePos: document.getElementById('final-rope-pos'),
   finalDuration: document.getElementById('final-duration'),
   confettiContainer: document.getElementById('confetti-container'),
+  trophyIcon: document.getElementById('trophy-icon'),
   btnRematch: document.getElementById('btn-rematch'),
   btnBackMenu: document.getElementById('btn-back-menu'),
   
   connectionStatus: document.getElementById('connection-status'),
+  soundToggle: document.getElementById('sound-toggle'),
+  soundIcon: document.getElementById('sound-icon'),
 };
+
+// ─── SVG Icon Injection ────────────────────────────────────────────────────
+function injectIcons() {
+  if (!window.GameIcons) return;
+  
+  const iconMap = {
+    'lightning': GameIcons.lightning,
+    'house': GameIcons.house,
+    'door': GameIcons.door,
+    'pencil': GameIcons.pencil,
+    'numpad': GameIcons.numpad,
+    'seedling': GameIcons.seedling,
+    'flame': GameIcons.flame,
+    'skull': GameIcons.skull,
+    'key': GameIcons.key,
+    'stopwatch': GameIcons.stopwatch,
+    'power': GameIcons.power,
+    'flag': GameIcons.flag,
+    'fireStreak': GameIcons.fireStreak,
+    'clipboard': GameIcons.clipboard,
+    'hourglass': GameIcons.hourglass,
+    'lightbulb': GameIcons.lightbulb,
+    'check': GameIcons.check,
+    'backspace': GameIcons.backspace,
+    'refresh': GameIcons.refresh,
+    'trophy': GameIcons.trophy,
+  };
+  
+  // Inject all data-icon elements
+  document.querySelectorAll('[data-icon]').forEach(el => {
+    const iconName = el.dataset.icon;
+    if (iconMap[iconName]) {
+      el.innerHTML = iconMap[iconName]();
+    }
+  });
+  
+  // Inject specific named elements
+  const logoEl = document.getElementById('logo-icon');
+  if (logoEl) logoEl.innerHTML = GameIcons.abacus();
+  
+  const charP1Wait = document.getElementById('char-p1-waiting');
+  if (charP1Wait) charP1Wait.innerHTML = GameIcons.characterP1(false);
+  
+  const charP2Wait = document.getElementById('char-p2-waiting');
+  if (charP2Wait) charP2Wait.innerHTML = GameIcons.characterP2(false);
+  
+  const charP1Game = document.getElementById('char-p1-game');
+  if (charP1Game) charP1Game.innerHTML = GameIcons.characterP1(true);
+  
+  const charP2Game = document.getElementById('char-p2-game');
+  if (charP2Game) charP2Game.innerHTML = GameIcons.characterP2(true);
+  
+  if (DOM.stunIcon) DOM.stunIcon.innerHTML = GameIcons.crossMark();
+  if (DOM.trophyIcon) DOM.trophyIcon.innerHTML = GameIcons.trophy();
+  if (DOM.soundIcon) DOM.soundIcon.innerHTML = GameIcons.speakerOn();
+  
+  // Stats avatars
+  const statsP1Avatar = document.getElementById('stats-p1-avatar');
+  if (statsP1Avatar) statsP1Avatar.innerHTML = GameIcons.characterP1(false);
+  const statsP2Avatar = document.getElementById('stats-p2-avatar');
+  if (statsP2Avatar) statsP2Avatar.innerHTML = GameIcons.characterP2(false);
+}
 
 // ─── Math Engine ───────────────────────────────────────────────────────────
 const MathEngine = {
@@ -119,7 +194,7 @@ const MathEngine = {
         a = rng.nextInt(10, difficulty === 'easy' ? 50 : 100);
         b = rng.nextInt(1, a);
         answer = a - b;
-        prompt = `${a} - ${b}`;
+        prompt = `${a} − ${b}`;
         break;
       case '*':
         if (difficulty === 'hard') {
@@ -259,6 +334,40 @@ function updateConnectionStatus(status, text) {
   DOM.connectionStatus.querySelector('.status-text').textContent = text;
 }
 
+// ─── Countdown System ──────────────────────────────────────────────────────
+function showCountdown(callback) {
+  const overlay = DOM.countdownOverlay;
+  const numEl = DOM.countdownNumber;
+  if (!overlay || !numEl) { callback(); return; }
+  
+  overlay.classList.add('active');
+  let count = 3;
+  
+  numEl.textContent = count;
+  numEl.className = 'countdown-number countdown-pulse';
+  if (window.SoundEngine) SoundEngine.play('countdown');
+  
+  const interval = setInterval(() => {
+    count--;
+    if (count > 0) {
+      numEl.textContent = count;
+      numEl.className = 'countdown-number countdown-pulse';
+      // Force reflow for animation restart
+      numEl.offsetHeight;
+      numEl.className = 'countdown-number countdown-pulse active';
+      if (window.SoundEngine) SoundEngine.play('countdown');
+    } else if (count === 0) {
+      numEl.textContent = 'GO!';
+      numEl.className = 'countdown-number countdown-go';
+      if (window.SoundEngine) SoundEngine.play('countdownGo');
+    } else {
+      clearInterval(interval);
+      overlay.classList.remove('active');
+      callback();
+    }
+  }, 800);
+}
+
 // ─── Peer Event Handlers ───────────────────────────────────────────────────
 PeerManager.onConnected(() => {
   console.log('PEER: Connected!');
@@ -318,6 +427,7 @@ function handleGuestJoin(data) {
   if (!GameState.isHost) return;
   
   GameState.roomId = PeerManager.roomCode;
+  GameState.opponentName = data.playerName || 'Lawan';
   
   const card = document.getElementById('slot-p2');
   if (card) {
@@ -326,6 +436,14 @@ function handleGuestJoin(data) {
     if (nameEl) nameEl.textContent = data.playerName;
   }
   
+  if (window.SoundEngine) SoundEngine.play('notify');
+  
+  // Send host info back to guest, then start after countdown
+  PeerManager.send({
+    type: 'HOST_INFO',
+    playerName: GameState.playerName,
+  });
+  
   setTimeout(() => {
     startGame();
   }, 1500);
@@ -333,7 +451,7 @@ function handleGuestJoin(data) {
 
 // ─── Start Game ────────────────────────────────────────────────────────────
 function startGame() {
-  GameState.isPlaying = true;
+  GameState.isPlaying = false; // Will be set true after countdown
   GameState.matchStartTime = Date.now();
   GameState.scores = { p1: 0, p2: 0 };
   GameState.streaks = { p1: 0, p2: 0 };
@@ -384,13 +502,35 @@ function startGameLocal(question) {
   GameState.matchStartTime = Date.now();
   
   if (DOM.gameRoomCode) DOM.gameRoomCode.textContent = GameState.roomId;
-  if (DOM.p1NameGame) DOM.p1NameGame.textContent = GameState.playerName;
-  if (DOM.p2NameGame) DOM.p2NameGame.textContent = 'Opponent';
+  
+  // Set player names correctly based on slot
+  if (GameState.slot === 'p1') {
+    if (DOM.p1NameGame) DOM.p1NameGame.textContent = GameState.playerName;
+    if (DOM.p2NameGame) DOM.p2NameGame.textContent = GameState.opponentName;
+  } else {
+    if (DOM.p1NameGame) DOM.p1NameGame.textContent = GameState.opponentName;
+    if (DOM.p2NameGame) DOM.p2NameGame.textContent = GameState.playerName;
+  }
+  
+  // Update zone labels to match threshold
+  updateZoneLabels();
   
   updateScoreDisplay();
   updateRopePosition(0);
-  showQuestion(question);
-  startMatchTimer();
+  
+  // Show countdown, then start the actual game
+  showCountdown(() => {
+    GameState.isPlaying = true;
+    GameState.matchStartTime = Date.now();
+    showQuestion(question);
+    startMatchTimer();
+  });
+}
+
+// ─── Zone Labels ───────────────────────────────────────────────────────────
+function updateZoneLabels() {
+  if (DOM.zoneLabelLeft) DOM.zoneLabelLeft.textContent = `−${GameState.winThreshold}`;
+  if (DOM.zoneLabelRight) DOM.zoneLabelRight.textContent = `+${GameState.winThreshold}`;
 }
 
 // ─── Question Display ──────────────────────────────────────────────────────
@@ -404,7 +544,7 @@ function showQuestion(question) {
     DOM.questionPrompt.textContent = question.prompt;
     DOM.questionPrompt.style.animation = 'none';
     DOM.questionPrompt.offsetHeight;
-    DOM.questionPrompt.style.animation = 'fadeInUp 0.3s ease-out';
+    DOM.questionPrompt.style.animation = 'questionPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)';
   }
   
   if (DOM.questionCategory) DOM.questionCategory.textContent = 'SOAL';
@@ -470,7 +610,7 @@ function calculateForcePreview(responseTimeSec) {
 
 // ─── Answer Submission ─────────────────────────────────────────────────────
 function submitAnswer(answer) {
-  if (!GameState.currentQuestion || GameState.isStunned) return;
+  if (!GameState.currentQuestion || GameState.isStunned || !GameState.isPlaying) return;
   
   if (timerBarInterval) clearInterval(timerBarInterval);
   
@@ -502,35 +642,41 @@ function submitAnswer(answer) {
       forceApplied = force;
       GameState.ropePosition -= force;
       GameState.scores.p1 += force;
-      GameState.ropePosition = Math.max(-120, Math.min(120, GameState.ropePosition));
+      
+      // Clamp to slightly beyond threshold for visual effect
+      const clampMax = GameState.winThreshold + 20;
+      GameState.ropePosition = Math.max(-clampMax, Math.min(clampMax, GameState.ropePosition));
       nextQuestion = generateNewQuestion('p1');
     } else {
       GameState.streaks.p1 = 0;
     }
     
-    // Show feedback to host
+    // Show feedback
     if (isCorrect) {
-      showFeedback('🎉', 'BENAR!', `+${forceApplied} pts`);
+      showFeedback('correct', 'BENAR!', `+${forceApplied} pts`);
+      triggerPullAnimation('p1', forceApplied);
       if (window.SoundEngine) {
-        SoundEngine.play(GameState.streaks.p1 >= 3 ? 'combo' : 'correct');
+        SoundEngine.play(GameState.streaks.p1 >= 3 ? 'combo' : 'correct', GameState.streaks.p1);
         SoundEngine.play('pull');
+        if (GameState.streaks.p1 >= 5) SoundEngine.play('bigCombo');
       }
+      // Sparks on big streaks
+      if (GameState.streaks.p1 >= 3) {
+        const rect = DOM.questionPrompt?.getBoundingClientRect();
+        if (rect) createSparks(rect.left + rect.width / 2, rect.top, 8, '#00d2a0');
+      }
+      if (GameState.streaks.p1 >= 5) createConfetti('game-confetti', 15);
     } else {
-      showFeedback('❌', 'SALAH!', `Jawaban: ${question.answer}`);
+      showFeedback('wrong', 'SALAH!', `Jawaban: ${question.answer}`);
       triggerStun();
       if (window.SoundEngine) {
         SoundEngine.play('wrong');
-        SoundEngine.play('stun');
+        SoundEngine.play('screenShake');
       }
+      triggerScreenShake('medium');
     }
     
-    // Re-enable buttons after stun
-    setTimeout(() => {
-      document.querySelectorAll('.answer-btn').forEach(btn => btn.disabled = false);
-    }, 600);
-    
-    
-    // Update host UI
+    // Update UI
     updateRopePosition(GameState.ropePosition);
     updateScoreDisplay();
     updateStreakDisplay();
@@ -540,7 +686,7 @@ function submitAnswer(answer) {
       showQuestion(nextQuestion);
     }
     
-    // Send to guest
+    // Send state to guest
     PeerManager.send({
       type: 'GAME_STATE',
       isCorrect,
@@ -592,10 +738,23 @@ function handleOpponentAnswer(data) {
     forceApplied = force;
     GameState.ropePosition += force;
     GameState.scores.p2 += force;
-    GameState.ropePosition = Math.max(-120, Math.min(120, GameState.ropePosition));
+    
+    const clampMax = GameState.winThreshold + 20;
+    GameState.ropePosition = Math.max(-clampMax, Math.min(clampMax, GameState.ropePosition));
     nextQuestion = generateNewQuestion('p2');
   } else {
     GameState.streaks.p2 = 0;
+  }
+  
+  // Update host's rope visual (opponent pulling)
+  updateRopePosition(GameState.ropePosition);
+  updateScoreDisplay();
+  updateStreakDisplay();
+  
+  // Play opponent pull sound on host side
+  if (isCorrect) {
+    triggerPullAnimation('p2', forceApplied);
+    if (window.SoundEngine) SoundEngine.play('ropeCreak');
   }
   
   // Send result back to guest
@@ -649,22 +808,29 @@ function updateGameStateLocal(data) {
   
   if (data.isCorrect !== undefined) {
     if (data.isCorrect) {
-      showFeedback('🎉', 'BENAR!', `+${data.forceApplied} pts`);
+      showFeedback('correct', 'BENAR!', `+${data.forceApplied} pts`);
+      triggerPullAnimation(GameState.slot, data.forceApplied);
       if (window.SoundEngine) {
         const streak = GameState.streaks[GameState.slot] || 0;
-        SoundEngine.play(streak >= 3 ? 'combo' : 'correct');
+        SoundEngine.play(streak >= 3 ? 'combo' : 'correct', streak);
         SoundEngine.play('pull');
+        if (streak >= 5) SoundEngine.play('bigCombo');
       }
       
       const currentStreak = GameState.streaks[GameState.slot] || 0;
-      if (currentStreak >= 5) createConfetti('game-confetti', 20);
+      if (currentStreak >= 3) {
+        const rect = DOM.questionPrompt?.getBoundingClientRect();
+        if (rect) createSparks(rect.left + rect.width / 2, rect.top, 8, '#00d2a0');
+      }
+      if (currentStreak >= 5) createConfetti('game-confetti', 15);
     } else {
-      showFeedback('❌', 'SALAH!', `Jawaban: ${data.correctAnswer}`);
+      showFeedback('wrong', 'SALAH!', `Jawaban: ${data.correctAnswer}`);
       triggerStun();
       if (window.SoundEngine) {
         SoundEngine.play('wrong');
-        SoundEngine.play('stun');
+        SoundEngine.play('screenShake');
       }
+      triggerScreenShake('medium');
     }
   }
 }
@@ -675,22 +841,121 @@ function updateScoreDisplay() {
 }
 
 function updateStreakDisplay() {
-  if (DOM.p1Streak) DOM.p1Streak.querySelector('.streak-count').textContent = GameState.streaks.p1 || 0;
-  if (DOM.p2Streak) DOM.p2Streak.querySelector('.streak-count').textContent = GameState.streaks.p2 || 0;
+  if (DOM.p1Streak) {
+    const count = GameState.streaks.p1 || 0;
+    DOM.p1Streak.querySelector('.streak-count').textContent = count;
+    DOM.p1Streak.classList.toggle('hot', count >= 3);
+  }
+  if (DOM.p2Streak) {
+    const count = GameState.streaks.p2 || 0;
+    DOM.p2Streak.querySelector('.streak-count').textContent = count;
+    DOM.p2Streak.classList.toggle('hot', count >= 3);
+  }
 }
+
+// ─── Rope Position & Animation ─────────────────────────────────────────────
+let ropeAnimFrame = null;
+let ropeTargetPos = 0;
+let ropeCurrent = 0;
 
 function updateRopePosition(position) {
   GameState.ropePosition = position;
+  ropeTargetPos = position;
   
-  if (DOM.ropeFlag) {
-    const percent = ((position + 120) / 240) * 100;
-    DOM.ropeFlag.style.left = `${Math.max(5, Math.min(95, percent))}%`;
+  if (!ropeAnimFrame) {
+    animateRope();
   }
   
+  // Update danger zone indicators
+  updateDangerZones(position);
+  
+  // Arena tint based on winning side
+  updateArenaTint(position);
+  
+  // Near-win sound
+  const absPos = Math.abs(position);
+  if (absPos > GameState.winThreshold * 0.7 && absPos < GameState.winThreshold) {
+    if (window.SoundEngine) SoundEngine.play('nearWin');
+  }
+}
+
+function animateRope() {
+  const ease = 0.12;
+  ropeCurrent += (ropeTargetPos - ropeCurrent) * ease;
+  
+  if (Math.abs(ropeTargetPos - ropeCurrent) < 0.1) {
+    ropeCurrent = ropeTargetPos;
+    ropeAnimFrame = null;
+  } else {
+    ropeAnimFrame = requestAnimationFrame(animateRope);
+  }
+  
+  const threshold = GameState.winThreshold;
+  const maxRange = threshold + 20;
+  
+  // Flag position
+  if (DOM.ropeFlag) {
+    const percent = ((ropeCurrent + maxRange) / (maxRange * 2)) * 100;
+    DOM.ropeFlag.style.left = `${Math.max(3, Math.min(97, percent))}%`;
+  }
+  
+  // Indicator
   if (DOM.ropeIndicator) {
-    const percent = ((position + 120) / 240) * 100;
+    const percent = ((ropeCurrent + maxRange) / (maxRange * 2)) * 100;
     DOM.ropeIndicator.style.left = `${Math.max(0, Math.min(100, percent))}%`;
   }
+}
+
+function updateDangerZones(position) {
+  const threshold = GameState.winThreshold;
+  const dangerStart = threshold * 0.7;
+  
+  if (DOM.ropeDangerLeft) {
+    const inDanger = position <= -dangerStart;
+    DOM.ropeDangerLeft.classList.toggle('active', inDanger);
+  }
+  if (DOM.ropeDangerRight) {
+    const inDanger = position >= dangerStart;
+    DOM.ropeDangerRight.classList.toggle('active', inDanger);
+  }
+}
+
+function updateArenaTint(position) {
+  if (!DOM.gameArena) return;
+  const threshold = GameState.winThreshold;
+  const ratio = position / threshold;
+  
+  if (Math.abs(ratio) > 0.3) {
+    const intensity = Math.min(0.15, (Math.abs(ratio) - 0.3) * 0.3);
+    const color = ratio < 0 ? `rgba(255, 107, 107, ${intensity})` : `rgba(72, 219, 251, ${intensity})`;
+    DOM.gameArena.style.boxShadow = `inset 0 0 60px ${color}`;
+  } else {
+    DOM.gameArena.style.boxShadow = '';
+  }
+}
+
+// ─── Pull Animation ────────────────────────────────────────────────────────
+function triggerPullAnimation(playerSlot, force) {
+  const charEl = playerSlot === 'p1' ? 
+    document.getElementById('char-p1-game') : 
+    document.getElementById('char-p2-game');
+  
+  if (!charEl) return;
+  
+  // Add pull class with intensity
+  const intensity = force > 15 ? 'pull-hard' : force > 8 ? 'pull-medium' : 'pull-light';
+  charEl.classList.add('pulling', intensity);
+  
+  setTimeout(() => {
+    charEl.classList.remove('pulling', 'pull-hard', 'pull-medium', 'pull-light');
+  }, 400);
+  
+  // Floating score near the character
+  const rect = charEl.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top;
+  const color = playerSlot === 'p1' ? '#ff6b6b' : '#48dbfb';
+  showFloatingScore(`+${force}`, x, y, color);
 }
 
 function checkWinner() {
@@ -703,12 +968,17 @@ function endMatch(winnerId) {
   if (!GameState.isPlaying) return;
   GameState.isPlaying = false;
   
+  // Clear all intervals
+  if (timerBarInterval) { clearInterval(timerBarInterval); timerBarInterval = null; }
+  if (matchTimerInterval) { clearInterval(matchTimerInterval); matchTimerInterval = null; }
+  if (ropeAnimFrame) { cancelAnimationFrame(ropeAnimFrame); ropeAnimFrame = null; }
+  
   const duration = Math.floor((Date.now() - GameState.matchStartTime) / 1000);
   const isWinner = winnerId === GameState.slot;
   
   if (DOM.resultTitle) {
     DOM.resultTitle.textContent = isWinner ? 'MENANG!' : 'KALAH!';
-    DOM.resultTitle.style.color = isWinner ? 'var(--accent-warning)' : 'var(--accent-danger)';
+    DOM.resultTitle.className = `result-title ${isWinner ? 'result-win' : 'result-lose'}`;
   }
   
   if (DOM.resultSubtitle) {
@@ -720,12 +990,18 @@ function endMatch(winnerId) {
   if (DOM.finalRopePos) DOM.finalRopePos.textContent = Math.round(GameState.ropePosition * 10) / 10;
   if (DOM.finalDuration) DOM.finalDuration.textContent = `${duration}s`;
   
+  // Set player names in stats based on slot perspective
+  const myName = GameState.playerName;
+  const oppName = GameState.opponentName;
+  
   updateMatchStats('p1', GameState.scores.p1, GameState.maxStreaks.p1, 
     GameState.correctCounts.p1 / Math.max(1, GameState.totalAnswers.p1),
-    GameState.totalResponseTime.p1 / Math.max(1, GameState.totalAnswers.p1));
+    GameState.totalResponseTime.p1 / Math.max(1, GameState.totalAnswers.p1),
+    GameState.slot === 'p1' ? myName : oppName);
   updateMatchStats('p2', GameState.scores.p2, GameState.maxStreaks.p2,
     GameState.correctCounts.p2 / Math.max(1, GameState.totalAnswers.p2),
-    GameState.totalResponseTime.p2 / Math.max(1, GameState.totalAnswers.p2));
+    GameState.totalResponseTime.p2 / Math.max(1, GameState.totalAnswers.p2),
+    GameState.slot === 'p2' ? myName : oppName);
   
   showScreen('match-over');
   
@@ -736,14 +1012,14 @@ function endMatch(winnerId) {
   if (window.SoundEngine) SoundEngine.play(isWinner ? 'win' : 'lose');
 }
 
-function updateMatchStats(slot, score, maxStreak, accuracy, avgTime) {
+function updateMatchStats(slot, score, maxStreak, accuracy, avgTime, name) {
   const nameEl = document.getElementById(`stats-${slot}-name`);
   const accEl = document.getElementById(`stats-${slot}-accuracy`);
   const timeEl = document.getElementById(`stats-${slot}-avgtime`);
   const forceEl = document.getElementById(`stats-${slot}-force`);
   const streakEl = document.getElementById(`stats-${slot}-streak`);
   
-  if (nameEl) nameEl.textContent = slot === 'p1' ? GameState.playerName : 'Opponent';
+  if (nameEl) nameEl.textContent = name;
   if (accEl) accEl.textContent = `${Math.round(accuracy * 100)}%`;
   if (timeEl) timeEl.textContent = `${Math.round(avgTime)}ms`;
   if (forceEl) forceEl.textContent = Math.round(score * 10) / 10;
@@ -761,11 +1037,26 @@ function handleRematch(data) {
 }
 
 // ─── Feedback & Effects ────────────────────────────────────────────────────
-function showFeedback(icon, text, points) {
+function showFeedback(type, text, points) {
   if (!DOM.feedbackOverlay) return;
-  DOM.feedbackOverlay.querySelector('.feedback-icon').textContent = icon;
-  DOM.feedbackOverlay.querySelector('.feedback-text').textContent = text;
-  DOM.feedbackOverlay.querySelector('.feedback-points').textContent = points;
+  
+  const iconEl = DOM.feedbackOverlay.querySelector('.feedback-icon');
+  if (iconEl && window.GameIcons) {
+    iconEl.innerHTML = type === 'correct' ? GameIcons.checkBurst() : GameIcons.crossMark();
+  }
+  
+  const textEl = DOM.feedbackOverlay.querySelector('.feedback-text');
+  if (textEl) textEl.textContent = text;
+  
+  const pointsEl = DOM.feedbackOverlay.querySelector('.feedback-points');
+  if (pointsEl) pointsEl.textContent = points;
+  
+  // Update border color based on type
+  const content = DOM.feedbackOverlay.querySelector('.feedback-content');
+  if (content) {
+    content.style.borderColor = type === 'correct' ? 'var(--accent-success)' : 'var(--accent-danger)';
+  }
+  
   DOM.feedbackOverlay.classList.add('show');
   setTimeout(() => DOM.feedbackOverlay.classList.remove('show'), 1200);
 }
@@ -787,7 +1078,7 @@ let matchTimerInterval = null;
 function startMatchTimer() {
   if (matchTimerInterval) clearInterval(matchTimerInterval);
   matchTimerInterval = setInterval(() => {
-    if (!GameState.isPlaying) { clearInterval(matchTimerInterval); return; }
+    if (!GameState.isPlaying) { clearInterval(matchTimerInterval); matchTimerInterval = null; return; }
     const elapsed = Math.floor((Date.now() - GameState.matchStartTime) / 1000);
     const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
     const seconds = (elapsed % 60).toString().padStart(2, '0');
@@ -833,6 +1124,7 @@ if (DOM.diffBtns) {
       DOM.diffBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       GameState.difficulty = btn.dataset.diff;
+      if (window.SoundEngine) SoundEngine.play('click');
     });
   });
 }
@@ -841,7 +1133,24 @@ if (DOM.diffBtns) {
 if (DOM.btnQuickMatch) {
   DOM.btnQuickMatch.addEventListener('click', () => {
     if (window.SoundEngine) SoundEngine.play('click');
-    showModal(DOM.createRoomModal);
+    // Quick match: auto-create a room with default settings
+    GameState.playerName = `Player_${Math.floor(Math.random() * 9999)}`;
+    GameState.isHost = true;
+    GameState.slot = 'p1';
+    
+    updateConnectionStatus('connecting', 'Membuat room...');
+    
+    PeerManager.createRoom().then(result => {
+      GameState.roomId = result.roomCode;
+      if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = result.roomCode;
+      if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
+      showScreen('waiting-room');
+      updateConnectionStatus('connected', 'Menunggu lawan...');
+    }).catch(err => {
+      console.error('[GAME] Quick match failed:', err);
+      alert('Gagal membuat room: ' + err.message);
+      updateConnectionStatus('disconnected', 'Gagal');
+    });
   });
 }
 
@@ -947,8 +1256,15 @@ if (DOM.btnCopyCode) {
     const code = DOM.roomCodeDisplay?.textContent;
     if (code && code !== '------') {
       navigator.clipboard.writeText(code).then(() => {
-        DOM.btnCopyCode.textContent = '✅ Copied!';
-        setTimeout(() => { DOM.btnCopyCode.textContent = '📋 Copy'; }, 2000);
+        const copyIcon = DOM.btnCopyCode.querySelector('.copy-icon');
+        if (copyIcon && window.GameIcons) {
+          copyIcon.innerHTML = GameIcons.clipboardCheck();
+        }
+        setTimeout(() => {
+          if (copyIcon && window.GameIcons) {
+            copyIcon.innerHTML = GameIcons.clipboard();
+          }
+        }, 2000);
       });
     }
   });
@@ -975,14 +1291,16 @@ if (DOM.btnBackMenu) {
 // ─── Numpad Handling ───────────────────────────────────────────────────────
 document.querySelectorAll('.numpad-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (GameState.isStunned) return;
+    if (GameState.isStunned || !GameState.isPlaying) return;
     const num = btn.dataset.num;
     if (num !== undefined) {
       GameState.numpadValue += num;
       if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue;
+      if (window.SoundEngine) SoundEngine.play('tick');
     } else if (btn.classList.contains('numpad-clear')) {
       GameState.numpadValue = '';
       if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = '0';
+      if (window.SoundEngine) SoundEngine.play('click');
     } else if (btn.classList.contains('numpad-enter')) {
       if (GameState.numpadValue !== '') submitAnswer(parseInt(GameState.numpadValue));
     }
@@ -1006,28 +1324,42 @@ document.addEventListener('keydown', (e) => {
     const num = parseInt(e.key);
     if (num >= 1 && num <= 4) {
       const btns = DOM.answerOptions?.querySelectorAll('.answer-btn');
-      if (btns && btns[num - 1]) submitAnswer(parseInt(btns[num - 1].textContent));
+      if (btns && btns[num - 1] && !btns[num - 1].disabled) {
+        submitAnswer(parseInt(btns[num - 1].textContent));
+      }
     }
   }
 });
 
 // ─── Initialize ────────────────────────────────────────────────────────────
+injectIcons();
 setupToggleButtons();
 showScreen('main-menu');
 
 // Sound toggle
-const soundToggle = document.getElementById('sound-toggle');
-if (soundToggle) {
-  soundToggle.addEventListener('click', () => {
+if (DOM.soundToggle) {
+  DOM.soundToggle.addEventListener('click', () => {
     if (window.SoundEngine) {
       const enabled = SoundEngine.toggle();
-      soundToggle.querySelector('.sound-icon').textContent = enabled ? '🔊' : '🔇';
-      soundToggle.classList.toggle('muted', !enabled);
+      if (DOM.soundIcon && window.GameIcons) {
+        DOM.soundIcon.innerHTML = enabled ? GameIcons.speakerOn() : GameIcons.speakerOff();
+      }
+      DOM.soundToggle.classList.toggle('muted', !enabled);
     }
   });
 }
 
-// Simulate online count
-setInterval(() => {
-  if (DOM.onlineCount) DOM.onlineCount.textContent = Math.floor(Math.random() * 50) + 10;
-}, 5000);
+// Handle HOST_INFO message for guest
+PeerManager.onData && (() => {
+  const originalHandler = handlePeerData;
+  window._peerDataHandler = (data) => {
+    if (data.type === 'HOST_INFO') {
+      GameState.opponentName = data.playerName || 'Host';
+      const nameEl = document.getElementById('p1-name');
+      if (nameEl) nameEl.textContent = data.playerName;
+      return;
+    }
+    originalHandler(data);
+  };
+  PeerManager.onData(window._peerDataHandler);
+})();

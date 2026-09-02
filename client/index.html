@@ -4,26 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0f0f23">
-  <title>Math Tug of War ⚡ Tarik Tambang Matematika</title>
+  <meta name="description" content="Math Tug of War — Game tarik tambang matematika 1v1 online. Jawab soal lebih cepat dan akurat untuk menarik lawan!">
+  <title>Math Tug of War — Tarik Tambang Matematika</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=3">
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
+  <!-- Animated Background Shapes -->
+  <div class="menu-bg">
+    <div class="floating-shape shape-1"></div>
+    <div class="floating-shape shape-2"></div>
+    <div class="floating-shape shape-3"></div>
+  </div>
   <div id="app">
     <!-- Animated Background Particles -->
     <canvas id="particles-canvas"></canvas>
     
+    <!-- Countdown Overlay -->
+    <div id="countdown-overlay" class="countdown-overlay">
+      <div class="countdown-content">
+        <div class="countdown-number" id="countdown-number">3</div>
+        <div class="countdown-label">Bersiap!</div>
+      </div>
+    </div>
+    
     <!-- Main Menu Screen -->
     <div id="main-menu" class="screen active">
-      <div class="menu-bg">
-        <div class="floating-shape shape-1"></div>
-        <div class="floating-shape shape-2"></div>
-        <div class="floating-shape shape-3"></div>
-      </div>
+
       <div class="menu-container">
         <div class="game-logo">
-          <div class="logo-icon">🧮</div>
+          <div class="logo-icon" id="logo-icon"><!-- SVG injected --></div>
           <h1>Math Tug of War</h1>
           <div class="logo-subtitle">Tarik Tambang Matematika</div>
           <div class="logo-badge">1v1 ONLINE</div>
@@ -31,7 +42,7 @@
         
         <div class="menu-buttons">
           <button type="button" id="btn-quick-match" class="btn btn-primary btn-large">
-            <span class="btn-icon">⚡</span>
+            <span class="btn-icon" data-icon="lightning"><!-- SVG --></span>
             <span class="btn-text">
               <span class="btn-label">Quick Match</span>
               <span class="btn-desc">Cari lawan secara acak</span>
@@ -39,11 +50,11 @@
           </button>
           <div class="btn-row">
             <button type="button" id="btn-create-room" class="btn btn-secondary">
-              <span class="btn-icon">🏠</span>
+              <span class="btn-icon" data-icon="house"><!-- SVG --></span>
               <span class="btn-text">Buat Room</span>
             </button>
             <button type="button" id="btn-join-room" class="btn btn-secondary">
-              <span class="btn-icon">🚪</span>
+              <span class="btn-icon" data-icon="door"><!-- SVG --></span>
               <span class="btn-text">Gabung</span>
             </button>
           </div>
@@ -53,17 +64,17 @@
           <div class="diff-label">Tingkat Kesulitan</div>
           <div class="diff-options">
             <button type="button" class="diff-btn active" data-diff="easy">
-              <span class="diff-emoji">🌱</span>
+              <span class="diff-icon" data-icon="seedling"><!-- SVG --></span>
               <span class="diff-name">Mudah</span>
               <span class="diff-desc">SD</span>
             </button>
             <button type="button" class="diff-btn" data-diff="medium">
-              <span class="diff-emoji">🔥</span>
+              <span class="diff-icon" data-icon="flame"><!-- SVG --></span>
               <span class="diff-name">Sedang</span>
               <span class="diff-desc">SMP</span>
             </button>
             <button type="button" class="diff-btn" data-diff="hard">
-              <span class="diff-emoji">💀</span>
+              <span class="diff-icon" data-icon="skull"><!-- SVG --></span>
               <span class="diff-name">Sulit</span>
               <span class="diff-desc">SMA+</span>
             </button>
@@ -73,7 +84,7 @@
         <div class="menu-footer">
           <div class="online-count">
             <span class="online-dot"></span>
-            <span id="online-count">--</span> pemain online
+            <span>Peer-to-Peer</span>
           </div>
         </div>
       </div>
@@ -83,22 +94,22 @@
     <div id="create-room-modal" class="modal">
       <div class="modal-content modal-large">
         <div class="modal-header">
-          <div class="modal-icon">🏠</div>
+          <div class="modal-icon" data-icon="house"><!-- SVG --></div>
           <h2>Buat Room Baru</h2>
         </div>
         <div class="form-group">
-          <label>Nama Kamu</label>
-          <input type="text" id="player-name" placeholder="Masukkan nama..." maxlength="15">
+          <label for="player-name">Nama Kamu</label>
+          <input type="text" id="player-name" placeholder="Masukkan nama..." maxlength="15" autocomplete="off">
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Mode Input</label>
             <div class="toggle-group" id="inputModeGroup">
               <button type="button" class="toggle-btn active" data-value="multiple_choice">
-                <span>📝</span> Pilihan Ganda
+                <span class="toggle-icon" data-icon="pencil"><!-- SVG --></span> Pilihan
               </button>
               <button type="button" class="toggle-btn" data-value="numpad">
-                <span>🔢</span> Numpad
+                <span class="toggle-icon" data-icon="numpad"><!-- SVG --></span> Numpad
               </button>
             </div>
             <input type="hidden" id="inputMode" value="multiple_choice">
@@ -126,17 +137,17 @@
     <div id="join-room-modal" class="modal">
       <div class="modal-content">
         <div class="modal-header">
-          <div class="modal-icon">🚪</div>
+          <div class="modal-icon" data-icon="door"><!-- SVG --></div>
           <h2>Gabung Room</h2>
         </div>
         <div class="form-group">
-          <label>Nama Kamu</label>
-          <input type="text" id="join-player-name" placeholder="Masukkan nama..." maxlength="15">
+          <label for="join-player-name">Nama Kamu</label>
+          <input type="text" id="join-player-name" placeholder="Masukkan nama..." maxlength="15" autocomplete="off">
         </div>
         <div class="form-group">
-          <label>6-Digit Room Code</label>
+          <label for="room-code">6-Digit Room Code</label>
           <div class="code-input-group">
-            <input type="text" id="room-code" placeholder="000000" maxlength="6" pattern="[0-9]*" inputmode="numeric">
+            <input type="text" id="room-code" placeholder="000000" maxlength="6" pattern="[0-9]*" inputmode="numeric" autocomplete="off">
             <span class="code-hint">Masukkan kode dari temanmu</span>
           </div>
         </div>
@@ -157,20 +168,22 @@
           <div class="room-code-display">
             <span class="code-label">Kode Room</span>
             <div class="code-value" id="room-code-display">------</div>
-            <button type="button" class="btn-copy" id="btn-copy-code">📋 Copy</button>
+            <button type="button" class="btn-copy" id="btn-copy-code">
+              <span class="copy-icon" data-icon="clipboard"><!-- SVG --></span> Copy
+            </button>
           </div>
         </div>
         
         <div class="arena-preview">
           <div class="player-card" id="slot-p1">
             <div class="player-char char-left">
-              <div class="char-body">🧑‍🎓</div>
+              <div class="char-body" id="char-p1-waiting"><!-- SVG injected --></div>
               <div class="char-platform"></div>
             </div>
             <div class="player-details">
               <div class="player-name" id="p1-name">Menunggu...</div>
               <div class="player-badge">
-                <span class="badge-icon">⏳</span>
+                <span class="badge-icon" data-icon="hourglass"><!-- SVG --></span>
                 <span class="badge-text">Belum Ready</span>
               </div>
             </div>
@@ -184,13 +197,13 @@
           
           <div class="player-card" id="slot-p2">
             <div class="player-char char-right">
-              <div class="char-body">🧑‍💻</div>
+              <div class="char-body" id="char-p2-waiting"><!-- SVG injected --></div>
               <div class="char-platform"></div>
             </div>
             <div class="player-details">
               <div class="player-name" id="p2-name">Menunggu...</div>
               <div class="player-badge">
-                <span class="badge-icon">⏳</span>
+                <span class="badge-icon" data-icon="hourglass"><!-- SVG --></span>
                 <span class="badge-text">Belum Ready</span>
               </div>
             </div>
@@ -199,13 +212,14 @@
         
         <div class="waiting-actions">
           <button type="button" id="btn-ready" class="btn btn-primary btn-large btn-glow">
-            <span>✓ READY</span>
+            <span class="btn-icon" data-icon="check"><!-- SVG --></span>
+            <span>READY</span>
           </button>
           <button type="button" id="btn-leave-room" class="btn btn-ghost">Keluar</button>
         </div>
         
         <div class="share-hint">
-          <span class="hint-icon">💡</span>
+          <span class="hint-icon" data-icon="lightbulb"><!-- SVG --></span>
           Bagikan kode room ke temanmu untuk bermain bersama!
         </div>
       </div>
@@ -217,13 +231,13 @@
       <div class="game-hud">
         <div class="hud-left">
           <div class="hud-room">
-            <span class="hud-icon">🔑</span>
+            <span class="hud-icon" data-icon="key"><!-- SVG --></span>
             <span id="game-room-code">----</span>
           </div>
         </div>
         <div class="hud-center">
           <div class="hud-timer">
-            <span class="timer-icon">⏱️</span>
+            <span class="timer-icon" data-icon="stopwatch"><!-- SVG --></span>
             <span id="match-time">00:00</span>
           </div>
         </div>
@@ -237,13 +251,11 @@
       
       <!-- Rope Arena -->
       <div class="game-arena-wrapper">
-        <div class="game-arena">
+        <div class="game-arena" id="game-arena">
           <!-- Player 1 Side -->
           <div class="arena-player arena-p1" id="arena-p1">
-            <div class="arena-char char-pulling-left">
-              <div class="char-sprite">🧑‍🎓</div>
-              <div class="char-shadow"></div>
-              <div class="pull-arm arm-left"></div>
+            <div class="arena-char char-pulling-left" id="char-p1-game">
+              <!-- SVG character injected by JS -->
             </div>
             <div class="arena-info">
               <div class="arena-name" id="p1-name-game">P1</div>
@@ -252,7 +264,7 @@
                 <span class="score-label">pts</span>
               </div>
               <div class="arena-streak" id="p1-streak">
-                <span class="streak-flame">🔥</span>
+                <span class="streak-icon" data-icon="fireStreak"><!-- SVG --></span>
                 <span class="streak-count">0</span>
               </div>
             </div>
@@ -261,31 +273,34 @@
           <!-- Rope Center -->
           <div class="rope-section">
             <div class="rope-zone zone-left">
-              <div class="zone-marker">−100</div>
+              <div class="zone-marker" id="zone-left-label">-100</div>
               <div class="zone-triangle"></div>
             </div>
             <div class="rope-track-container">
-              <div class="rope-track">
-                <div class="rope-line" id="rope-line"></div>
+              <div class="rope-track" id="rope-track">
+                <div class="rope-line" id="rope-line">
+                  <!-- SVG rope rendered here -->
+                </div>
                 <div class="rope-flag" id="rope-flag">
                   <div class="flag-pole"></div>
-                  <div class="flag-banner">🚩</div>
+                  <div class="flag-banner" data-icon="flag"><!-- SVG --></div>
                 </div>
                 <div class="rope-indicator" id="rope-indicator"></div>
+                <!-- Danger zones -->
+                <div class="rope-danger rope-danger-left" id="rope-danger-left"></div>
+                <div class="rope-danger rope-danger-right" id="rope-danger-right"></div>
               </div>
             </div>
             <div class="rope-zone zone-right">
-              <div class="zone-marker">+100</div>
+              <div class="zone-marker" id="zone-right-label">+100</div>
               <div class="zone-triangle"></div>
             </div>
           </div>
           
           <!-- Player 2 Side -->
           <div class="arena-player arena-p2" id="arena-p2">
-            <div class="arena-char char-pulling-right">
-              <div class="char-sprite">🧑‍💻</div>
-              <div class="char-shadow"></div>
-              <div class="pull-arm arm-right"></div>
+            <div class="arena-char char-pulling-right" id="char-p2-game">
+              <!-- SVG character injected by JS -->
             </div>
             <div class="arena-info">
               <div class="arena-name" id="p2-name-game">P2</div>
@@ -294,7 +309,7 @@
                 <span class="score-label">pts</span>
               </div>
               <div class="arena-streak" id="p2-streak">
-                <span class="streak-flame">🔥</span>
+                <span class="streak-icon" data-icon="fireStreak"><!-- SVG --></span>
                 <span class="streak-count">0</span>
               </div>
             </div>
@@ -317,7 +332,7 @@
           </div>
           <div class="timer-info">
             <span class="force-display" id="force-display">
-              <span class="force-icon">💪</span>
+              <span class="force-icon" data-icon="power"><!-- SVG --></span>
               <span class="force-value">--</span>
             </span>
             <span class="time-display" id="response-time">-- ms</span>
@@ -342,9 +357,9 @@
             <button type="button" class="numpad-btn" data-num="1">1</button>
             <button type="button" class="numpad-btn" data-num="2">2</button>
             <button type="button" class="numpad-btn" data-num="3">3</button>
-            <button type="button" class="numpad-btn numpad-clear">C</button>
+            <button type="button" class="numpad-btn numpad-clear"><span data-icon="backspace">C</span></button>
             <button type="button" class="numpad-btn" data-num="0">0</button>
-            <button type="button" class="numpad-btn numpad-enter">✓</button>
+            <button type="button" class="numpad-btn numpad-enter"><span data-icon="check"><!-- SVG --></span></button>
           </div>
         </div>
       </div>
@@ -364,7 +379,7 @@
       <!-- Stun Overlay -->
       <div class="stun-overlay" id="stun-overlay">
         <div class="stun-content">
-          <div class="stun-icon">❌</div>
+          <div class="stun-icon" id="stun-icon"><!-- SVG injected --></div>
           <div class="stun-text">SALAH!</div>
           <div class="stun-timer">0.6s</div>
         </div>
@@ -377,7 +392,7 @@
         <div class="result-celebration">
           <div class="confetti-container" id="confetti-container"></div>
           <div class="result-trophy">
-            <div class="trophy-icon">🏆</div>
+            <div class="trophy-icon" id="trophy-icon"><!-- SVG injected --></div>
           </div>
           <h1 class="result-title" id="result-title">MENANG!</h1>
           <p class="result-subtitle" id="result-subtitle">Kamu memenangkan pertandingan!</p>
@@ -385,21 +400,21 @@
         
         <div class="result-summary">
           <div class="summary-card">
-            <div class="summary-icon">🚩</div>
+            <div class="summary-icon" data-icon="flag"><!-- SVG --></div>
             <div class="summary-value" id="final-rope-pos">0</div>
             <div class="summary-label">Posisi Tali</div>
           </div>
           <div class="summary-card">
-            <div class="summary-icon">⏱️</div>
+            <div class="summary-icon" data-icon="stopwatch"><!-- SVG --></div>
             <div class="summary-value" id="final-duration">0s</div>
             <div class="summary-label">Durasi</div>
           </div>
         </div>
         
         <div class="result-stats">
-          <div class="stats-player" id="stats-p1">
+          <div class="stats-player stats-p1" id="stats-p1">
             <div class="stats-header">
-              <div class="stats-avatar">🧑‍🎓</div>
+              <div class="stats-avatar" id="stats-p1-avatar"><!-- SVG --></div>
               <div class="stats-name" id="stats-p1-name">P1</div>
             </div>
             <div class="stats-grid">
@@ -421,9 +436,9 @@
               </div>
             </div>
           </div>
-          <div class="stats-player" id="stats-p2">
+          <div class="stats-player stats-p2" id="stats-p2">
             <div class="stats-header">
-              <div class="stats-avatar">🧑‍💻</div>
+              <div class="stats-avatar" id="stats-p2-avatar"><!-- SVG --></div>
               <div class="stats-name" id="stats-p2-name">P2</div>
             </div>
             <div class="stats-grid">
@@ -449,10 +464,10 @@
         
         <div class="result-actions">
           <button type="button" id="btn-rematch" class="btn btn-primary btn-large">
-            🔄 Main Lagi
+            <span class="btn-icon" data-icon="refresh"><!-- SVG --></span> Main Lagi
           </button>
           <button type="button" id="btn-back-menu" class="btn btn-secondary">
-            🏠 Menu
+            <span class="btn-icon" data-icon="house"><!-- SVG --></span> Menu
           </button>
         </div>
       </div>
@@ -465,24 +480,16 @@
     </div>
     
     <!-- Sound Toggle -->
-    <button type="button" id="sound-toggle" class="sound-toggle" title="Toggle Sound">
-      <span class="sound-icon">🔊</span>
+    <button type="button" id="sound-toggle" class="sound-toggle" title="Toggle Sound" aria-label="Toggle Sound">
+      <span class="sound-icon" id="sound-icon"><!-- SVG injected --></span>
     </button>
   </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="js/sound.js"></script>
-  <script src="js/particles.js"></script>
-  <script src="js/peer.js"></script>
-  <script src="js/game.js"></script>
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const statusEl = document.getElementById('connection-status');
-      if (statusEl) {
-        statusEl.className = 'connection-status ready';
-        statusEl.querySelector('.status-text').textContent = 'Siap';
-      }
-    });
-  </script>
+  <script src="js/icons.js?v=4"></script>
+  <script src="js/sound.js?v=4"></script>
+  <script src="js/particles.js?v=4"></script>
+  <script src="js/peer.js?v=4"></script>
+  <script src="js/game.js?v=4"></script>
 </body>
 </html>
