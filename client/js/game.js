@@ -65,6 +65,7 @@ const DOM = {
   p2NameWaiting: document.getElementById('p2-name'),
   btnReady: document.getElementById('btn-ready'),
   btnLeaveRoom: document.getElementById('btn-leave-room'),
+  btnLeaveGame: document.getElementById('btn-leave-game'),
   btnCopyCode: document.getElementById('btn-copy-code'),
   
   gameRoomCode: document.getElementById('game-room-code'),
@@ -393,6 +394,13 @@ PeerManager.onDisconnected(() => {
   console.log('PEER: Disconnected');
   updateConnectionStatus('disconnected', 'Terputus!');
   if (window.SoundEngine) SoundEngine.play('wrong');
+  
+  if (GameState.isPlaying) {
+    GameState.isPlaying = false;
+    alert(`${GameState.opponentName || 'Lawan'} terputus!`);
+    showScreen('main-menu');
+    return;
+  }
   
   // Reset ready states if in waiting room
   if (GameState.ready) {
@@ -1345,6 +1353,15 @@ if (DOM.btnLeaveRoom) {
     PeerManager.disconnect();
     GameState.roomId = null;
     GameState.slot = null;
+    showScreen('main-menu');
+  });
+}
+
+if (DOM.btnLeaveGame) {
+  DOM.btnLeaveGame.addEventListener('click', () => {
+    if (window.SoundEngine) SoundEngine.play('click');
+    if (window.PeerManager) PeerManager.disconnect();
+    GameState.isPlaying = false;
     showScreen('main-menu');
   });
 }
