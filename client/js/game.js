@@ -221,8 +221,11 @@ const playerQuestions = {
   p2: { current: null, seed: null },
 };
 
+let questionCounter = 0;
+
 function generateNewQuestion(playerSlot) {
-  const seed = Date.now() + Math.floor(Math.random() * 100000) + (playerSlot === 'p1' ? 1 : 2);
+  questionCounter++;
+  const seed = Date.now() + Math.floor(Math.random() * 1000000) + questionCounter * 1000 + (playerSlot === 'p1' ? 1 : 2);
   playerQuestions[playerSlot].seed = seed;
   const question = MathEngine.generateQuestion(GameState.difficulty, seed);
   playerQuestions[playerSlot].current = question;
