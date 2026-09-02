@@ -139,15 +139,13 @@ class GameRoom {
       this.applyForce(playerSlot, force);
       stats.score += force;
       
-      // Generate new question IMMEDIATELY for this player
+      // Generate new question ONLY on correct answer
       this._generateNewQuestion(playerSlot);
       
     } else {
-      // Wrong answer: reset streak
+      // Wrong answer: reset streak, keep same question
       stats.streak = 0;
-      
-      // Generate new question IMMEDIATELY for this player
-      this._generateNewQuestion(playerSlot);
+      // No new question — player must retry until correct
     }
     
     // Check win condition after every answer
