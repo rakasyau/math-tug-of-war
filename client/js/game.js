@@ -181,6 +181,7 @@ if (DOM.thresholdBtns) {
 // ─── Menu Event Listeners ──────────────────────────────────────────────────
 if (DOM.btnQuickMatch) {
   DOM.btnQuickMatch.addEventListener('click', () => {
+    if (window.SoundEngine) SoundEngine.play('click');
     socket.emit('QUICK_MATCH', {
       playerName: GameState.playerName,
       difficulty: GameState.difficulty,
@@ -190,6 +191,7 @@ if (DOM.btnQuickMatch) {
 
 if (DOM.btnCreateRoom) {
   DOM.btnCreateRoom.addEventListener('click', () => {
+    if (window.SoundEngine) SoundEngine.play('click');
     showModal(DOM.createRoomModal);
   });
 }
@@ -289,11 +291,17 @@ socket.on('ANSWER_RESULT', (data) => {
   // Show next question immediately (already included in ANSWER_RESULT)
   if (data.nextQuestion) {
     showQuestion(data.nextQuestion);
+    if (window.SoundEngine) SoundEngine.play('newQuestion');
   }
 });
 
 socket.on('MATCH_OVER', (data) => {
   showMatchOver(data);
+  // Play win/lose sound
+  if (window.SoundEngine) {
+    const isWinner = data.winnerId === GameState.playerId;
+    SoundEngine.play(isWinner ? 'win' : 'lose');
+  }
 });
 
 socket.on('REMATCH_REQUESTED', (data) => {
@@ -304,11 +312,13 @@ socket.on('REMATCH_REQUESTED', (data) => {
 
 socket.on('REMATCH_ACCEPTED', (data) => {
   showScreen('waiting-room');
+  if (window.SoundEngine) SoundEngine.play('notify');
 });
 
 socket.on('ERROR', (data) => {
   console.error('Server error:', data.message);
   showFeedback('❌', 'Error', data.message);
+  if (window.SoundEngine) SoundEngine.play('wrong');
 });
 
 // ─── Waiting Room ──────────────────────────────────────────────────────────
@@ -591,6 +601,17 @@ function showAnswerResult(data) {
     // Show success feedback
     showFeedback('🎉', 'BENAR!', `+${data.forceApplied} pts`);
     
+    // Play sound
+    if (window.SoundEngine) {
+      const streak = GameState.streaks[GameState.slot] || 0;
+      if (streak >= 3) {
+        SoundEngine.play('combo', streak); // Combo sound for streaks
+      } else {
+        SoundEngine.play('correct');
+      }
+      SoundEngine.play('pull');
+    }
+    
     // Animate rope pull
     const pullDir = GameState.slot === 'p1' ? 'left' : 'right';
     animatePull(pullDir);
@@ -601,9 +622,20 @@ function showAnswerResult(data) {
       const rect = btn.getBoundingClientRect();
       showFloatingScore(`+${data.forceApplied}`, rect.left + rect.width/2, rect.top);
     }
+    
+      // Confetti for combos
+      if (streak >= 5) {
+        createConfetti('game-confetti', 20);
+      }
   } else {
     // Show stun effect
     triggerStun();
+    
+    // Play wrong sound
+    if (window.SoundEngine) {
+      SoundEngine.play('wrong');
+      SoundEngine.play('stun');
+    }
   }
 }
 
@@ -812,6 +844,18 @@ if (DOM.btnBackMenu) {
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 showScreen('main-menu');
+
+// Sound toggle
+const soundToggle = document.getElementById('sound-toggle');
+if (soundToggle) {
+  soundToggle.addEventListener('click', () => {
+    if (window.SoundEngine) {
+      const enabled = SoundEngine.toggle();
+      soundToggle.querySelector('.sound-icon').textContent = enabled ? '🔊' : '🔇';
+      soundToggle.classList.toggle('muted', !enabled);
+    }
+  });
+}
 
 // Simulate online count
 setInterval(() => {

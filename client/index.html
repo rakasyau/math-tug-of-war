@@ -345,6 +345,9 @@
         </div>
       </div>
       
+      <!-- Confetti Container (for combos) -->
+      <div class="confetti-container" id="game-confetti"></div>
+      
       <!-- Feedback Overlay -->
       <div class="feedback-overlay" id="feedback-overlay">
         <div class="feedback-content">
@@ -456,9 +459,15 @@
       <span class="status-dot"></span>
       <span class="status-text">Menghubungkan...</span>
     </div>
+    
+    <!-- Sound Toggle -->
+    <button type="button" id="sound-toggle" class="sound-toggle" title="Toggle Sound">
+      <span class="sound-icon">🔊</span>
+    </button>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="js/sound.js"></script>
   <script src="js/particles.js"></script>
   <script src="js/game.js"></script>
 </body>
