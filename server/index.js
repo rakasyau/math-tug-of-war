@@ -140,10 +140,12 @@ io.on('connection', (socket) => {
     
     // Auto-start when both players ready
     if (room.readyState.p1 && room.readyState.p2) {
+      console.log(`[GAME] Both players ready in room ${room.roomId}, starting in 500ms...`);
       setTimeout(() => {
         if (room.gameState.status === 'waiting') {
           const result = manager.startGame(room.roomId);
           if (result.success) {
+            console.log(`[GAME] Room ${room.roomId} started!`);
             const q1 = manager.getQuestionForPlayer(room.roomId, room.players.p1.id);
             const q2 = manager.getQuestionForPlayer(room.roomId, room.players.p2.id);
             

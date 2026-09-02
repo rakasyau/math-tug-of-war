@@ -623,10 +623,11 @@ function showAnswerResult(data) {
       showFloatingScore(`+${data.forceApplied}`, rect.left + rect.width/2, rect.top);
     }
     
-      // Confetti for combos
-      if (streak >= 5) {
-        createConfetti('game-confetti', 20);
-      }
+    // Confetti for combos
+    const currentStreak = GameState.streaks[GameState.slot] || 0;
+    if (currentStreak >= 5) {
+      createConfetti('game-confetti', 20);
+    }
   } else {
     // Show stun effect
     triggerStun();
