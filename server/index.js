@@ -130,28 +130,35 @@ io.on('connection', (socket) => {
     if (!room) return;
     
     socket.to(room.roomId).emit('OPPONENT_READY', { playerId });
-  });
-  
-  // ─── Start Game ─────────────────────────────────────────────────────────
-  socket.on('START_GAME', () => {
-    const room = manager.getRoomByPlayer(playerId);
-    if (!room) return;
     
-    const result = manager.startGame(room.roomId);
-    if (result.success) {
-      // Generate initial questions for both players
-      const q1 = manager.getQuestionForPlayer(room.roomId, room.players.p1.id);
-      const q2 = manager.getQuestionForPlayer(room.roomId, room.players.p2.id);
-      
-      io.to(room.roomId).emit('GAME_STARTED', {
-        room: room.getPublicState(),
-        questions: {
-          p1: q1,
-          p2: q2,
-        },
-      });
+    // Track ready state
+    if (!room.readyState) room.readyState = {};
+    const playerSlot = room.getPlayerSlot(playerId);
+    if (playerSlot) {
+      room.readyState[playerSlot] = true;
+    }
+    
+    // Auto-start when both players ready
+    if (room.readyState.p1 && room.readyState.p2) {
+      setTimeout(() => {
+        if (room.gameState.status === 'waiting') {
+          const result = manager.startGame(room.roomId);
+          if (result.success) {
+            const q1 = manager.getQuestionForPlayer(room.roomId, room.players.p1.id);
+            const q2 = manager.getQuestionForPlayer(room.roomId, room.players.p2.id);
+            
+            io.to(room.roomId).emit('GAME_STARTED', {
+              room: room.getPublicState(),
+              questions: { p1: q1, p2: q2 },
+            });
+          }
+        }
+      }, 500);
     }
   });
+  
+  // ─── Game auto-starts when both ready ──────────────────────────────────
+  // (Server emits GAME_STARTED directly when both players ready)
   
   // ─── Submit Answer ──────────────────────────────────────────────────────
   socket.on('SUBMIT_ANSWER', (data) => {
@@ -171,17 +178,23 @@ io.on('connection', (socket) => {
       return;
     }
     
-    // Send result to answering player
+    // Get the next question for this player (already generated in processAnswer)
+    const nextQuestion = room.getPlayerQuestion(room.getPlayerSlot(playerId));
+    
+    // Send result + next question to answering player ONLY
     socket.emit('ANSWER_RESULT', {
       isCorrect: result.isCorrect,
       forceApplied: result.forceApplied,
       responseTimeMs: result.responseTimeMs,
-      correctAnswer: result.isCorrect ? null : result.room?.gameState?.currentQuestionSeed,
+      correctAnswer: result.correctAnswer,
+      nextQuestion: nextQuestion ? {
+        questionId: nextQuestion.questionId,
+        prompt: nextQuestion.prompt,
+        options: nextQuestion.options,
+      } : null,
     });
     
-    // Broadcast state update to both players
-    const nextQuestion = manager.getQuestionForPlayer(room.roomId, playerId);
-    
+    // Broadcast rope state to BOTH players (but NOT the next question)
     io.to(room.roomId).emit('GAME_STATE_UPDATE', {
       roomId: room.roomId,
       ropePosition: Math.round(room.gameState.ropePosition * 100) / 100,
@@ -195,19 +208,18 @@ io.on('connection', (socket) => {
         p1: room.players.p1 ? {
           id: room.players.p1.id,
           name: room.players.p1.name,
+          score: Math.round(room.playerStats.p1.score * 10) / 10,
+          streak: room.playerStats.p1.streak,
         } : null,
         p2: room.players.p2 ? {
           id: room.players.p2.id,
           name: room.players.p2.name,
+          score: Math.round(room.playerStats.p2.score * 10) / 10,
+          streak: room.playerStats.p2.streak,
         } : null,
       },
       timestamp: Date.now(),
     });
-    
-    // Send next question to answering player
-    if (nextQuestion && room.gameState.status === 'playing') {
-      socket.emit('NEW_QUESTION', nextQuestion);
-    }
     
     // Check if game ended
     if (room.gameState.status === 'finished') {
@@ -220,9 +232,10 @@ io.on('connection', (socket) => {
         finalRopePosition: Math.round(room.gameState.ropePosition * 100) / 100,
         durationSeconds: Math.round(duration / 1000),
         stats: {
-          p1: { accuracy: 0, avgResponseTimeSec: 0, totalForce: 0, highestStreak: 0 },
-          p2: { accuracy: 0, avgResponseTimeSec: 0, totalForce: 0, highestStreak: 0 },
+          p1: room.getPlayerStats('p1'),
+          p2: room.getPlayerStats('p2'),
         },
+        room: room.getPublicState(),
       });
     }
   });
@@ -251,6 +264,7 @@ io.on('connection', (socket) => {
     room.gameState.matchStartTime = null;
     room.gameState.matchEndTime = null;
     room.gameState.questionCounter = 0;
+    room.readyState = {};
     
     io.to(room.roomId).emit('REMATCH_ACCEPTED', {
       room: room.getPublicState(),

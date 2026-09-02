@@ -14,14 +14,24 @@ class GameRoom {
       p2: null,
     };
     
+    // Per-player question state (independent!)
+    this.playerQuestions = {
+      p1: { current: null, seed: null, history: [] },
+      p2: { current: null, seed: null, history: [] },
+    };
+    
+    // Per-player stats
+    this.playerStats = {
+      p1: { score: 0, streak: 0, maxStreak: 0, correctCount: 0, totalAnswers: 0, totalResponseTime: 0 },
+      p2: { score: 0, streak: 0, maxStreak: 0, correctCount: 0, totalAnswers: 0, totalResponseTime: 0 },
+    };
+    
     this.gameState = {
       status: 'waiting', // waiting, ready, playing, finished
       ropePosition: CONFIG.ROPE_START,
-      currentQuestionSeed: Date.now(),
       matchStartTime: null,
       matchEndTime: null,
       winnerId: null,
-      questionCounter: 0,
     };
     
     this.lastBroadcastTime = 0;
@@ -55,13 +65,30 @@ class GameRoom {
     this.gameState.status = 'playing';
     this.gameState.matchStartTime = Date.now();
     this.gameState.ropePosition = CONFIG.ROPE_START;
-    this.gameState.questionCounter = 0;
-    this.generateNextQuestion();
+    
+    // Generate initial questions for each player (independent seeds!)
+    this.playerQuestions.p1.current = this._generateNewQuestion('p1');
+    this.playerQuestions.p2.current = this._generateNewQuestion('p2');
+    
+    // Reset stats
+    this.playerStats.p1 = { score: 0, streak: 0, maxStreak: 0, correctCount: 0, totalAnswers: 0, totalResponseTime: 0 };
+    this.playerStats.p2 = { score: 0, streak: 0, maxStreak: 0, correctCount: 0, totalAnswers: 0, totalResponseTime: 0 };
   }
   
-  generateNextQuestion() {
-    this.gameState.questionCounter++;
-    this.gameState.currentQuestionSeed = Date.now() + this.gameState.questionCounter;
+  // Generate a new question for a specific player
+  _generateNewQuestion(playerSlot) {
+    const seed = Date.now() + Math.floor(Math.random() * 100000) + (playerSlot === 'p1' ? 1 : 2);
+    this.playerQuestions[playerSlot].seed = seed;
+    
+    const question = MathEngine.generateQuestion(this.settings.difficulty, seed);
+    this.playerQuestions[playerSlot].current = question;
+    
+    return question;
+  }
+  
+  // Get the current question for a specific player
+  getPlayerQuestion(playerSlot) {
+    return this.playerQuestions[playerSlot]?.current || null;
   }
   
   processAnswer(playerId, questionId, submittedAnswer, clientTimestamp) {
@@ -74,37 +101,57 @@ class GameRoom {
       return { error: 'Player not found in this room' };
     }
     
-    const question = MathEngine.generateQuestion(
-      this.settings.difficulty,
-      this.gameState.currentQuestionSeed
-    );
+    // Get the current question for this specific player
+    const question = this.getPlayerQuestion(playerSlot);
+    if (!question) {
+      return { error: 'No question available' };
+    }
     
+    // Validate answer
     const isCorrect = (submittedAnswer === question.answer);
     const serverTime = Date.now();
-    const responseTimeSec = Math.max(0.1, (serverTime - this.gameState.matchStartTime) / 1000);
+    const responseTimeMs = clientTimestamp ? (serverTime - clientTimestamp) : 0;
+    const responseTimeSec = Math.max(0.1, responseTimeMs / 1000);
+    
+    // Update player stats
+    const stats = this.playerStats[playerSlot];
+    stats.totalAnswers++;
+    stats.totalResponseTime += responseTimeMs;
     
     let result = {
       playerId,
       isCorrect,
       forceApplied: 0,
-      responseTimeMs: Math.round(responseTimeSec * 1000),
+      responseTimeMs: Math.round(responseTimeMs),
+      correctAnswer: question.answer, // Send correct answer for feedback
     };
     
     if (isCorrect) {
-      const currentStreak = this.getCurrentStreak(playerId);
-      const force = MathEngine.calculateForce(responseTimeSec, this.settings.difficulty, currentStreak);
+      // Calculate force with combo
+      stats.correctCount++;
+      stats.streak++;
+      if (stats.streak > stats.maxStreak) stats.maxStreak = stats.streak;
+      
+      const force = MathEngine.calculateForce(responseTimeSec, this.settings.difficulty, stats.streak);
       result.forceApplied = force;
+      
+      // Apply force to rope
       this.applyForce(playerSlot, force);
-      this.incrementStreak(playerId);
+      stats.score += force;
+      
+      // Generate new question IMMEDIATELY for this player
+      this._generateNewQuestion(playerSlot);
+      
     } else {
-      this.resetStreak(playerId);
+      // Wrong answer: reset streak
+      stats.streak = 0;
+      
+      // Generate new question IMMEDIATELY for this player
+      this._generateNewQuestion(playerSlot);
     }
     
-    // Check win condition
+    // Check win condition after every answer
     this.checkWinCondition();
-    
-    // Generate next question
-    this.generateNextQuestion();
     
     return result;
   }
@@ -119,7 +166,7 @@ class GameRoom {
     
     // Clamp to valid range
     this.gameState.ropePosition = Math.max(
-      CONFIG.ROPE_MIN - 20, // Allow slight overpull for visual effect
+      CONFIG.ROPE_MIN - 20,
       Math.min(CONFIG.ROPE_MAX + 20, this.gameState.ropePosition)
     );
   }
@@ -147,17 +194,19 @@ class GameRoom {
     return null;
   }
   
-  getCurrentStreak(playerId) {
-    // In production, track per-player streak; simplified here
-    return 0;
-  }
-  
-  incrementStreak(playerId) {
-    // Track per-player streak
-  }
-  
-  resetStreak(playerId) {
-    // Reset streak on wrong answer
+  getPlayerStats(playerSlot) {
+    const stats = this.playerStats[playerSlot];
+    const avgResponseTime = stats.totalAnswers > 0 ? stats.totalResponseTime / stats.totalAnswers : 0;
+    const accuracy = stats.totalAnswers > 0 ? stats.correctCount / stats.totalAnswers : 0;
+    
+    return {
+      score: stats.score,
+      streak: stats.streak,
+      maxStreak: stats.maxStreak,
+      accuracy,
+      avgResponseTimeSec: avgResponseTime / 1000,
+      totalForce: stats.score,
+    };
   }
   
   getPublicState() {
@@ -171,6 +220,20 @@ class GameRoom {
       },
       settings: this.settings,
       timestamp: Date.now(),
+    };
+  }
+  
+  // Get public state with per-player questions (without answers)
+  getStateWithQuestions() {
+    const q1 = this.playerQuestions.p1.current;
+    const q2 = this.playerQuestions.p2.current;
+    
+    return {
+      ...this.getPublicState(),
+      questions: {
+        p1: q1 ? { questionId: q1.questionId, prompt: q1.prompt, options: q1.options } : null,
+        p2: q2 ? { questionId: q2.questionId, prompt: q2.prompt, options: q2.options } : null,
+      },
     };
   }
 }

@@ -1,4 +1,6 @@
-/* ─── Math Tug of War - Client Game Logic ────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   MATH TUG OF WAR — Game Client
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 const socket = io();
 
@@ -7,11 +9,10 @@ const GameState = {
   playerId: null,
   playerName: `Player_${Math.floor(Math.random() * 9999)}`,
   roomId: null,
-  slot: null, // 'p1' or 'p2'
+  slot: null,
   isPlaying: false,
   currentQuestion: null,
   ropePosition: 0,
-  opponentRopePosition: 0,
   scores: { p1: 0, p2: 0 },
   streaks: { p1: 0, p2: 0 },
   matchStartTime: null,
@@ -19,6 +20,8 @@ const GameState = {
   isStunned: false,
   numpadValue: '',
   lastPingTime: 0,
+  difficulty: 'medium',
+  winThreshold: 100,
 };
 
 // ─── DOM Elements ──────────────────────────────────────────────────────────
@@ -35,12 +38,13 @@ const DOM = {
   btnQuickMatch: document.getElementById('btn-quick-match'),
   btnCreateRoom: document.getElementById('btn-create-room'),
   btnJoinRoom: document.getElementById('btn-join-room'),
-  difficulty: document.getElementById('difficulty'),
+  diffBtns: document.querySelectorAll('.diff-btn'),
+  onlineCount: document.getElementById('online-count'),
   
   // Create Room Modal
   playerName: document.getElementById('player-name'),
-  inputMode: document.getElementById('input-mode'),
-  winThreshold: document.getElementById('win-threshold'),
+  inputModeBtns: document.querySelectorAll('[data-mode]'),
+  thresholdBtns: document.querySelectorAll('[data-threshold]'),
   btnConfirmCreate: document.getElementById('btn-confirm-create'),
   btnCancelCreate: document.getElementById('btn-cancel-create'),
   
@@ -52,11 +56,13 @@ const DOM = {
   
   // Waiting Room
   roomCodeDisplay: document.getElementById('room-code-display'),
-  shareCode: document.getElementById('share-code'),
   slotP1: document.getElementById('slot-p1'),
   slotP2: document.getElementById('slot-p2'),
+  p1NameWaiting: document.getElementById('p1-name'),
+  p2NameWaiting: document.getElementById('p2-name'),
   btnReady: document.getElementById('btn-ready'),
   btnLeaveRoom: document.getElementById('btn-leave-room'),
+  btnCopyCode: document.getElementById('btn-copy-code'),
   
   // Game
   gameRoomCode: document.getElementById('game-room-code'),
@@ -64,25 +70,33 @@ const DOM = {
   pingDisplay: document.getElementById('ping-display'),
   p1Score: document.getElementById('p1-score'),
   p2Score: document.getElementById('p2-score'),
-  p1Name: document.getElementById('p1-name'),
-  p2Name: document.getElementById('p2-name'),
+  p1NameGame: document.getElementById('p1-name-game'),
+  p2NameGame: document.getElementById('p2-name-game'),
   p1Streak: document.getElementById('p1-streak'),
   p2Streak: document.getElementById('p2-streak'),
-  rope: document.getElementById('rope'),
-  ropePosition: document.getElementById('rope-position'),
+  ropeLine: document.getElementById('rope-line'),
+  ropeFlag: document.getElementById('rope-flag'),
+  ropeIndicator: document.getElementById('rope-indicator'),
   questionPrompt: document.getElementById('question-prompt'),
+  questionCategory: document.getElementById('question-category'),
   timerBar: document.getElementById('timer-bar'),
-  forcePotential: document.getElementById('force-potential'),
+  forceDisplay: document.getElementById('force-display'),
+  forceValue: document.querySelector('.force-value'),
   responseTime: document.getElementById('response-time'),
   answerOptions: document.getElementById('answer-options'),
-  numpad: document.getElementById('numpad'),
+  numpadContainer: document.getElementById('numpad-container'),
   numpadDisplay: document.getElementById('numpad-display'),
+  
+  // Feedback
+  feedbackOverlay: document.getElementById('feedback-overlay'),
+  stunOverlay: document.getElementById('stun-overlay'),
   
   // Match Over
   resultTitle: document.getElementById('result-title'),
   resultSubtitle: document.getElementById('result-subtitle'),
   finalRopePos: document.getElementById('final-rope-pos'),
   finalDuration: document.getElementById('final-duration'),
+  confettiContainer: document.getElementById('confetti-container'),
   statsP1: document.getElementById('stats-p1'),
   statsP2: document.getElementById('stats-p2'),
   btnRematch: document.getElementById('btn-rematch'),
@@ -95,15 +109,22 @@ const DOM = {
 // ─── Screen Management ─────────────────────────────────────────────────────
 function showScreen(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(screenId).classList.add('active');
+  const screen = document.getElementById(screenId);
+  if (screen) {
+    screen.classList.add('active');
+    // Trigger entrance animation
+    screen.style.animation = 'none';
+    screen.offsetHeight; // Force reflow
+    screen.style.animation = '';
+  }
 }
 
 function showModal(modal) {
-  modal.classList.add('active');
+  if (modal) modal.classList.add('active');
 }
 
 function hideModal(modal) {
-  modal.classList.remove('active');
+  if (modal) modal.classList.remove('active');
 }
 
 // ─── Connection Handling ───────────────────────────────────────────────────
@@ -112,7 +133,7 @@ socket.on('connect', () => {
 });
 
 socket.on('disconnect', () => {
-  updateConnectionStatus('disconnected', 'Terputus');
+  updateConnectionStatus('disconnected', 'Terputus!');
 });
 
 socket.on('PLAYER_ID', (data) => {
@@ -120,87 +141,139 @@ socket.on('PLAYER_ID', (data) => {
 });
 
 function updateConnectionStatus(status, text) {
+  if (!DOM.connectionStatus) return;
   DOM.connectionStatus.className = `connection-status ${status}`;
   DOM.connectionStatus.querySelector('.status-text').textContent = text;
 }
 
+// ─── Difficulty Selection ─────────────────────────────────────────────────
+if (DOM.diffBtns) {
+  DOM.diffBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      DOM.diffBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      GameState.difficulty = btn.dataset.diff;
+    });
+  });
+}
+
+// ─── Toggle Buttons in Create Room ────────────────────────────────────────
+if (DOM.inputModeBtns) {
+  DOM.inputModeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      DOM.inputModeBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      GameState.inputMode = btn.dataset.mode;
+    });
+  });
+}
+
+if (DOM.thresholdBtns) {
+  DOM.thresholdBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      DOM.thresholdBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      GameState.winThreshold = parseInt(btn.dataset.threshold);
+    });
+  });
+}
+
 // ─── Menu Event Listeners ──────────────────────────────────────────────────
-DOM.btnQuickMatch.addEventListener('click', () => {
-  socket.emit('QUICK_MATCH', {
-    playerName: GameState.playerName,
-    difficulty: DOM.difficulty.value,
+if (DOM.btnQuickMatch) {
+  DOM.btnQuickMatch.addEventListener('click', () => {
+    socket.emit('QUICK_MATCH', {
+      playerName: GameState.playerName,
+      difficulty: GameState.difficulty,
+    });
   });
-});
+}
 
-DOM.btnCreateRoom.addEventListener('click', () => {
-  showModal(DOM.createRoomModal);
-});
-
-DOM.btnJoinRoom.addEventListener('click', () => {
-  showModal(DOM.joinRoomModal);
-});
-
-DOM.btnConfirmCreate.addEventListener('click', () => {
-  GameState.playerName = DOM.playerName.value || GameState.playerName;
-  socket.emit('CREATE_ROOM', {
-    playerName: GameState.playerName,
-    difficulty: DOM.difficulty.value,
-    inputMode: DOM.inputMode.value,
-    winThreshold: parseInt(DOM.winThreshold.value),
+if (DOM.btnCreateRoom) {
+  DOM.btnCreateRoom.addEventListener('click', () => {
+    showModal(DOM.createRoomModal);
   });
-  hideModal(DOM.createRoomModal);
-});
+}
 
-DOM.btnCancelCreate.addEventListener('click', () => hideModal(DOM.createRoomModal));
-
-DOM.btnConfirmJoin.addEventListener('click', () => {
-  GameState.playerName = DOM.joinPlayerName.value || GameState.playerName;
-  socket.emit('JOIN_ROOM', {
-    playerName: GameState.playerName,
-    roomId: DOM.roomCode.value,
+if (DOM.btnJoinRoom) {
+  DOM.btnJoinRoom.addEventListener('click', () => {
+    showModal(DOM.joinRoomModal);
   });
-  hideModal(DOM.joinRoomModal);
-});
+}
 
-DOM.btnCancelJoin.addEventListener('click', () => hideModal(DOM.joinRoomModal));
+if (DOM.btnConfirmCreate) {
+  DOM.btnConfirmCreate.addEventListener('click', () => {
+    GameState.playerName = DOM.playerName.value || GameState.playerName;
+    socket.emit('CREATE_ROOM', {
+      playerName: GameState.playerName,
+      difficulty: GameState.difficulty,
+      inputMode: GameState.inputMode,
+      winThreshold: GameState.winThreshold,
+    });
+    hideModal(DOM.createRoomModal);
+  });
+}
+
+if (DOM.btnCancelCreate) {
+  DOM.btnCancelCreate.addEventListener('click', () => hideModal(DOM.createRoomModal));
+}
+
+if (DOM.btnConfirmJoin) {
+  DOM.btnConfirmJoin.addEventListener('click', () => {
+    GameState.playerName = DOM.joinPlayerName.value || GameState.playerName;
+    socket.emit('JOIN_ROOM', {
+      playerName: GameState.playerName,
+      roomId: DOM.roomCode.value,
+    });
+    hideModal(DOM.joinRoomModal);
+  });
+}
+
+if (DOM.btnCancelJoin) {
+  DOM.btnCancelJoin.addEventListener('click', () => hideModal(DOM.joinRoomModal));
+}
 
 // ─── Socket Event Handlers ─────────────────────────────────────────────────
 socket.on('ROOM_CREATED', (data) => {
   GameState.roomId = data.roomId;
   GameState.slot = data.slot;
-  GameState.inputMode = data.room.settings.inputMode;
+  GameState.inputMode = data.room.settings.inputMode || 'multiple_choice';
   enterWaitingRoom(data);
 });
 
 socket.on('ROOM_JOINED', (data) => {
   GameState.roomId = data.roomId;
   GameState.slot = data.slot;
-  GameState.inputMode = data.room.settings.inputMode;
+  GameState.inputMode = data.room.settings.inputMode || 'multiple_choice';
   enterWaitingRoom(data);
 });
 
 socket.on('PLAYER_JOINED', (data) => {
-  // Show that opponent joined
   const slot = GameState.slot === 'p1' ? 'p2' : 'p1';
   updateWaitingSlot(slot, data.playerName, false);
+  // Animation
+  const card = document.getElementById(`slot-${slot}`);
+  if (card) {
+    card.classList.add('connected');
+    card.style.animation = 'fadeInUp 0.5s ease-out';
+  }
 });
 
 socket.on('ROOM_READY', (data) => {
-  // Both players are in, show VS
-  document.querySelectorAll('.ready-status').forEach(el => el.textContent='⏳');
+  document.querySelectorAll('.player-badge').forEach(b => {
+    b.querySelector('.badge-icon').textContent = '⏳';
+  });
 });
 
 socket.on('OPPONENT_READY', (data) => {
   const slot = GameState.slot === 'p1' ? 'p2' : 'p1';
-  const slotEl = document.getElementById(`slot-${slot}`);
-  slotEl.querySelector('.ready-status').textContent='✅';
-});
-
-DOM.btnReady.addEventListener('click', () => {
-  socket.emit('PLAYER_READY', {});
-  document.getElementById(`slot-${GameState.slot}`).querySelector('.ready-status').textContent='✅';
-  DOM.btnReady.disabled = true;
-  DOM.btnReady.textContent = 'Menunggu lawan...';
+  const card = document.getElementById(`slot-${slot}`);
+  if (card) {
+    card.classList.add('ready');
+    const badge = card.querySelector('.player-badge');
+    badge.classList.add('ready');
+    badge.querySelector('.badge-icon').textContent = '✅';
+    badge.querySelector('.badge-text').textContent = 'Ready!';
+  }
 });
 
 socket.on('GAME_STARTED', (data) => {
@@ -213,10 +286,10 @@ socket.on('GAME_STATE_UPDATE', (data) => {
 
 socket.on('ANSWER_RESULT', (data) => {
   showAnswerResult(data);
-});
-
-socket.on('NEW_QUESTION', (data) => {
-  showQuestion(data);
+  // Show next question immediately (already included in ANSWER_RESULT)
+  if (data.nextQuestion) {
+    showQuestion(data.nextQuestion);
+  }
 });
 
 socket.on('MATCH_OVER', (data) => {
@@ -230,43 +303,94 @@ socket.on('REMATCH_REQUESTED', (data) => {
 });
 
 socket.on('REMATCH_ACCEPTED', (data) => {
-  // Reset for rematch
   showScreen('waiting-room');
 });
 
 socket.on('ERROR', (data) => {
-  alert(`Error: ${data.message}`);
+  console.error('Server error:', data.message);
+  showFeedback('❌', 'Error', data.message);
 });
 
 // ─── Waiting Room ──────────────────────────────────────────────────────────
 function enterWaitingRoom(data) {
   showScreen('waiting-room');
-  DOM.roomCodeDisplay.textContent = data.roomId;
-  DOM.shareCode.textContent = data.roomId;
+  if (DOM.roomCodeDisplay) {
+    DOM.roomCodeDisplay.textContent = data.roomId;
+  }
   
-  // Update own slot
   updateWaitingSlot(GameState.slot, GameState.playerName, false);
   
-  // Update opponent slot if exists
   const oppSlot = GameState.slot === 'p1' ? 'p2' : 'p1';
   const opp = data.room.players[oppSlot];
   if (opp) {
     updateWaitingSlot(oppSlot, opp.name, false);
   }
+  
+  // Reset ready state
+  document.querySelectorAll('.player-card').forEach(card => {
+    card.classList.remove('ready', 'connected');
+  });
+  document.querySelectorAll('.player-badge').forEach(badge => {
+    badge.classList.remove('ready');
+    badge.querySelector('.badge-icon').textContent = '⏳';
+    badge.querySelector('.badge-text').textContent = 'Belum Ready';
+  });
+  
+  if (DOM.btnReady) {
+    DOM.btnReady.disabled = false;
+    DOM.btnReady.innerHTML = '<span>✓ READY</span>';
+  }
 }
 
 function updateWaitingSlot(slot, name, isReady) {
-  const slotEl = document.getElementById(`slot-${slot}`);
-  slotEl.querySelector('.name').textContent = name;
-  slotEl.querySelector('.ready-status').textContent = isReady ? '✅' : '⏳';
+  const nameEl = document.getElementById(`${slot}-name`);
+  if (nameEl) {
+    nameEl.textContent = name;
+  }
+  const card = document.getElementById(`slot-${slot}`);
+  if (card && name !== 'Menunggu...') {
+    card.classList.add('connected');
+  }
 }
 
-DOM.btnLeaveRoom.addEventListener('click', () => {
-  socket.emit('LEAVE_ROOM', {});
-  GameState.roomId = null;
-  GameState.slot = null;
-  showScreen('main-menu');
-});
+if (DOM.btnReady) {
+  DOM.btnReady.addEventListener('click', () => {
+    socket.emit('PLAYER_READY', {});
+    const myCard = document.getElementById(`slot-${GameState.slot}`);
+    if (myCard) {
+      myCard.classList.add('ready');
+      const badge = myCard.querySelector('.player-badge');
+      badge.classList.add('ready');
+      badge.querySelector('.badge-icon').textContent = '✅';
+      badge.querySelector('.badge-text').textContent = 'Ready!';
+    }
+    DOM.btnReady.disabled = true;
+    DOM.btnReady.innerHTML = '<span>Menunggu lawan...</span>';
+  });
+}
+
+if (DOM.btnLeaveRoom) {
+  DOM.btnLeaveRoom.addEventListener('click', () => {
+    socket.emit('LEAVE_ROOM', {});
+    GameState.roomId = null;
+    GameState.slot = null;
+    showScreen('main-menu');
+  });
+}
+
+if (DOM.btnCopyCode) {
+  DOM.btnCopyCode.addEventListener('click', () => {
+    const code = DOM.roomCodeDisplay?.textContent;
+    if (code && code !== '------') {
+      navigator.clipboard.writeText(code).then(() => {
+        DOM.btnCopyCode.textContent = '✅ Copied!';
+        setTimeout(() => {
+          DOM.btnCopyCode.textContent = '📋 Copy';
+        }, 2000);
+      });
+    }
+  });
+}
 
 // ─── Game Start ────────────────────────────────────────────────────────────
 function startGame(data) {
@@ -278,24 +402,25 @@ function startGame(data) {
   GameState.ropePosition = 0;
   GameState.isStunned = false;
   
-  // Update room code display
-  DOM.gameRoomCode.textContent = GameState.roomId;
+  if (DOM.gameRoomCode) {
+    DOM.gameRoomCode.textContent = GameState.roomCode;
+  }
   
-  // Update player names
-  DOM.p1Name.textContent = data.room.players.p1?.name || 'Player 1';
-  DOM.p2Name.textContent = data.room.players.p2?.name || 'Player 2';
+  if (DOM.p1NameGame) DOM.p1NameGame.textContent = data.room.players.p1?.name || 'P1';
+  if (DOM.p2NameGame) DOM.p2NameGame.textContent = data.room.players.p2?.name || 'P2';
+  
+  // Reset score displays
+  updateScoreDisplay();
+  updateRopePosition(0);
   
   // Show initial question
-  if (GameState.slot === 'p1' && data.questions.p1) {
+  if (GameState.slot === 'p1' && data.questions?.p1) {
     showQuestion(data.questions.p1);
-  } else if (GameState.slot === 'p2' && data.questions.p2) {
+  } else if (GameState.slot === 'p2' && data.questions?.p2) {
     showQuestion(data.questions.p2);
   }
   
-  // Start match timer
   startMatchTimer();
-  
-  // Start ping monitor
   startPingMonitor();
 }
 
@@ -306,16 +431,26 @@ function showQuestion(question) {
   GameState.currentQuestion = question;
   GameState.numpadValue = '';
   
-  DOM.questionPrompt.textContent = question.prompt;
-  DOM.responseTime.textContent = '-- ms';
+  if (DOM.questionPrompt) {
+    DOM.questionPrompt.textContent = question.prompt;
+    DOM.questionPrompt.style.animation = 'none';
+    DOM.questionPrompt.offsetHeight;
+    DOM.questionPrompt.style.animation = 'fadeInUp 0.3s ease-out';
+  }
+  
+  if (DOM.questionCategory) {
+    DOM.questionCategory.textContent = 'SOAL';
+  }
+  
+  if (DOM.responseTime) DOM.responseTime.textContent = '-- ms';
   
   if (GameState.inputMode === 'numpad') {
-    DOM.answerOptions.style.display = 'none';
-    DOM.numpad.style.display = 'block';
-    DOM.numpadDisplay.textContent = '0';
+    if (DOM.answerOptions) DOM.answerOptions.style.display = 'none';
+    if (DOM.numpadContainer) DOM.numpadContainer.style.display = 'block';
+    if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = '0';
   } else {
-    DOM.answerOptions.style.display = 'grid';
-    DOM.numpad.style.display = 'none';
+    if (DOM.answerOptions) DOM.answerOptions.style.display = 'grid';
+    if (DOM.numpadContainer) DOM.numpadContainer.style.display = 'none';
     renderAnswerOptions(question.options);
   }
   
@@ -323,11 +458,15 @@ function showQuestion(question) {
 }
 
 function renderAnswerOptions(options) {
+  if (!DOM.answerOptions) return;
   DOM.answerOptions.innerHTML = '';
+  
   options.forEach((opt, idx) => {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'answer-btn';
     btn.textContent = opt;
+    btn.style.animation = `fadeInUp 0.3s ease-out ${idx * 0.05}s both`;
     btn.addEventListener('click', () => submitAnswer(opt));
     DOM.answerOptions.appendChild(btn);
   });
@@ -341,19 +480,19 @@ function startTimerBar() {
   if (timerBarInterval) clearInterval(timerBarInterval);
   
   timerStartTime = Date.now();
-  const totalDuration = 10000; // 10 seconds for full bar drain
+  const totalDuration = 10000;
   
   timerBarInterval = setInterval(() => {
     const elapsed = Date.now() - timerStartTime;
     const remaining = Math.max(0, 1 - (elapsed / totalDuration));
-    const percent = remaining * 100;
     
-    DOM.timerBar.style.transform = `scaleX(${remaining})`;
+    if (DOM.timerBar) {
+      DOM.timerBar.style.transform = `scaleX(${remaining})`;
+    }
     
-    // Update force potential display
     const responseTimeSec = elapsed / 1000;
     const force = calculateForcePreview(responseTimeSec);
-    DOM.forcePotential.textContent = `Force: ${force}`;
+    if (DOM.forceValue) DOM.forceValue.textContent = force;
     
     if (remaining <= 0) {
       clearInterval(timerBarInterval);
@@ -380,13 +519,13 @@ function submitAnswer(answer) {
   if (timerBarInterval) clearInterval(timerBarInterval);
   
   const responseTime = Date.now() - timerStartTime;
-  DOM.responseTime.textContent = `${responseTime} ms`;
+  if (DOM.responseTime) DOM.responseTime.textContent = `${responseTime} ms`;
   
-  // Highlight selected answer
-  if (GameState.inputMode === 'multiple_choice') {
+  if (DOM.inputMode === 'multiple_choice') {
     document.querySelectorAll('.answer-btn').forEach(btn => {
+      btn.disabled = true;
       if (parseInt(btn.textContent) === answer) {
-        btn.style.borderColor = 'var(--primary-light)';
+        btn.style.borderColor = 'var(--accent-primary)';
       }
     });
   }
@@ -407,10 +546,10 @@ document.querySelectorAll('.numpad-btn').forEach(btn => {
     
     if (num !== undefined) {
       GameState.numpadValue += num;
-      DOM.numpadDisplay.textContent = GameState.numpadValue;
+      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue;
     } else if (btn.classList.contains('numpad-clear')) {
       GameState.numpadValue = '';
-      DOM.numpadDisplay.textContent = '0';
+      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = '0';
     } else if (btn.classList.contains('numpad-enter')) {
       if (GameState.numpadValue !== '') {
         submitAnswer(parseInt(GameState.numpadValue));
@@ -419,32 +558,29 @@ document.querySelectorAll('.numpad-btn').forEach(btn => {
   });
 });
 
-// Keyboard support for numpad mode
+// Keyboard support
 document.addEventListener('keydown', (e) => {
-  if (!GameState.isPlaying || GameState.inputMode !== 'numpad' || GameState.isStunned) return;
+  if (!GameState.isPlaying || GameState.isStunned) return;
   
-  if (e.key >= '0' && e.key <= '9') {
-    GameState.numpadValue += e.key;
-    DOM.numpadDisplay.textContent = GameState.numpadValue;
-  } else if (e.key === 'Enter') {
-    if (GameState.numpadValue !== '') {
-      submitAnswer(parseInt(GameState.numpadValue));
+  if (GameState.inputMode === 'numpad') {
+    if (e.key >= '0' && e.key <= '9') {
+      GameState.numpadValue += e.key;
+      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue;
+    } else if (e.key === 'Enter') {
+      if (GameState.numpadValue !== '') {
+        submitAnswer(parseInt(GameState.numpadValue));
+      }
+    } else if (e.key === 'Backspace') {
+      GameState.numpadValue = GameState.numpadValue.slice(0, -1);
+      if (DOM.numpadDisplay) DOM.numpadDisplay.textContent = GameState.numpadValue || '0';
     }
-  } else if (e.key === 'Backspace') {
-    GameState.numpadValue = GameState.numpadValue.slice(0, -1);
-    DOM.numpadDisplay.textContent = GameState.numpadValue || '0';
-  }
-});
-
-// Keyboard support for multiple choice (1-4)
-document.addEventListener('keydown', (e) => {
-  if (!GameState.isPlaying || GameState.inputMode !== 'multiple_choice' || GameState.isStunned) return;
-  
-  const num = parseInt(e.key);
-  if (num >= 1 && num <= 4) {
-    const btns = DOM.answerOptions.querySelectorAll('.answer-btn');
-    if (btns[num - 1]) {
-      submitAnswer(parseInt(btns[num - 1].textContent));
+  } else {
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= 4) {
+      const btns = DOM.answerOptions?.querySelectorAll('.answer-btn');
+      if (btns && btns[num - 1]) {
+        submitAnswer(parseInt(btns[num - 1].textContent));
+      }
     }
   }
 });
@@ -452,95 +588,130 @@ document.addEventListener('keydown', (e) => {
 // ─── Answer Result ─────────────────────────────────────────────────────────
 function showAnswerResult(data) {
   if (data.isCorrect) {
-    // Show pull effect
-    document.querySelector('.game-arena').classList.add('pull-effect');
-    setTimeout(() => {
-      document.querySelector('.game-arena').classList.remove('pull-effect');
-    }, 300);
+    // Show success feedback
+    showFeedback('🎉', 'BENAR!', `+${data.forceApplied} pts`);
+    
+    // Animate rope pull
+    const pullDir = GameState.slot === 'p1' ? 'left' : 'right';
+    animatePull(pullDir);
+    
+    // Floating score
+    const btn = document.querySelector('.answer-btn:active') || document.querySelector('.answer-btn');
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      showFloatingScore(`+${data.forceApplied}`, rect.left + rect.width/2, rect.top);
+    }
   } else {
     // Show stun effect
     triggerStun();
   }
 }
 
+function showFeedback(icon, text, points) {
+  if (!DOM.feedbackOverlay) return;
+  
+  DOM.feedbackOverlay.querySelector('.feedback-icon').textContent = icon;
+  DOM.feedbackOverlay.querySelector('.feedback-text').textContent = text;
+  DOM.feedbackOverlay.querySelector('.feedback-points').textContent = points;
+  DOM.feedbackOverlay.classList.add('show');
+  
+  setTimeout(() => {
+    DOM.feedbackOverlay.classList.remove('show');
+  }, 1200);
+}
+
 function triggerStun() {
   GameState.isStunned = true;
   
-  const overlay = document.createElement('div');
-  overlay.className = 'stun-overlay';
-  overlay.textContent = 'SALAH!';
-  document.body.appendChild(overlay);
+  if (DOM.stunOverlay) {
+    DOM.stunOverlay.classList.add('active');
+  }
   
-  // Shake screen
-  document.body.classList.add('shake');
+  document.body.style.animation = 'none';
+  document.body.offsetHeight;
+  document.body.style.animation = '';
   
   setTimeout(() => {
-    overlay.remove();
-    document.body.classList.remove('shake');
+    if (DOM.stunOverlay) DOM.stunOverlay.classList.remove('active');
     GameState.isStunned = false;
   }, 600);
 }
 
+function animatePull(direction) {
+  const arena = document.querySelector('.game-arena');
+  if (arena) {
+    arena.style.animation = `pullBounce${direction === 'left' ? 'Left' : 'Right'} 0.3s ease-out`;
+    setTimeout(() => {
+      arena.style.animation = '';
+    }, 300);
+  }
+  
+  // Update streak animation
+  const myStreak = GameState.slot === 'p1' ? DOM.p1Streak : DOM.p2Streak;
+  if (myStreak) {
+    myStreak.classList.add('hot');
+    setTimeout(() => myStreak.classList.remove('hot'), 500);
+  }
+}
+
 // ─── Game State Update ─────────────────────────────────────────────────────
 function updateGameState(data) {
-  // Update rope position with smooth interpolation
-  const targetPosition = data.ropePosition;
-  animateRopeTo(targetPosition);
+  if (data.ropePosition !== undefined) {
+    updateRopePosition(data.ropePosition);
+  }
   
-  // Update scores (approximate from force applied)
   if (data.lastAction) {
     const action = data.lastAction;
     const slot = action.playerId === GameState.playerId ? GameState.slot : 
                  (GameState.slot === 'p1' ? 'p2' : 'p1');
     
     if (action.isCorrect) {
-      GameState.scores[slot] += action.forceApplied;
-      GameState.streaks[slot]++;
+      GameState.scores[slot] = (GameState.scores[slot] || 0) + action.forceApplied;
+      GameState.streaks[slot] = (GameState.streaks[slot] || 0) + 1;
     } else {
       GameState.streaks[slot] = 0;
     }
     
     updateScoreDisplay();
   }
-  
-  // Update rope position text
-  DOM.ropePosition.textContent = `Posisi: ${Math.round(data.ropePosition * 10) / 10}`;
-}
-
-function animateRopeTo(targetPosition) {
-  const startPosition = GameState.ropePosition;
-  const duration = 200; // ms
-  const startTime = Date.now();
-  
-  function animate() {
-    const elapsed = Date.now() - startTime;
-    const progress = Math.min(1, elapsed / duration);
-    
-    // Ease out cubic
-    const eased = 1 - Math.pow(1 - progress, 3);
-    const current = startPosition + (targetPosition - startPosition) * eased;
-    
-    // Update rope visual (flag position)
-    const percent = ((current + 120) / 240) * 100; // Map -120..120 to 0..100%
-    DOM.rope.style.setProperty('--rope-percent', `${percent}%`);
-    DOM.rope.querySelector('::after') || (DOM.rope.style.background = 
-      `linear-gradient(90deg, var(--p1-color) 0%, var(--rope-color) ${percent}%, var(--p2-color) 100%)`);
-    
-    GameState.ropePosition = current;
-    
-    if (progress < 1) {
-      requestAnimationFrame(animate);
-    }
-  }
-  
-  requestAnimationFrame(animate);
 }
 
 function updateScoreDisplay() {
-  DOM.p1Score.textContent = Math.round(GameState.scores.p1);
-  DOM.p2Score.textContent = Math.round(GameState.scores.p2);
-  DOM.p1Streak.textContent = `Streak: ${GameState.streaks.p1}x`;
-  DOM.p2Streak.textContent = `Streak: ${GameState.streaks.p2}x`;
+  if (DOM.p1Score) DOM.p1Score.textContent = Math.round(GameState.scores.p1 || 0);
+  if (DOM.p2Score) DOM.p2Score.textContent = Math.round(GameState.scores.p2 || 0);
+  
+  if (DOM.p1Streak) {
+    DOM.p1Streak.querySelector('.streak-count').textContent = GameState.streaks.p1 || 0;
+  }
+  if (DOM.p2Streak) {
+    DOM.p2Streak.querySelector('.streak-count').textContent = GameState.streaks.p2 || 0;
+  }
+}
+
+function updateRopePosition(position) {
+  GameState.ropePosition = position;
+  
+  if (DOM.ropeFlag) {
+    // Map -120..120 to 0%..100%
+    const percent = ((position + 120) / 240) * 100;
+    const clamped = Math.max(5, Math.min(95, percent));
+    DOM.ropeFlag.style.left = `${clamped}%`;
+  }
+  
+  if (DOM.ropeIndicator) {
+    const percent = ((position + 120) / 240) * 100;
+    DOM.ropeIndicator.style.left = `${Math.max(0, Math.min(100, percent))}%`;
+  }
+  
+  // Color the rope based on position
+  if (DOM.ropeLine) {
+    const absPos = Math.abs(position);
+    if (absPos > 60) {
+      DOM.ropeLine.style.boxShadow = `0 0 15px ${position < 0 ? 'var(--p1-color)' : 'var(--p2-color)'}`;
+    } else {
+      DOM.ropeLine.style.boxShadow = '0 2px 8px rgba(255, 192, 72, 0.5)';
+    }
+  }
 }
 
 // ─── Match Timer ───────────────────────────────────────────────────────────
@@ -558,7 +729,7 @@ function startMatchTimer() {
     const elapsed = Math.floor((Date.now() - GameState.matchStartTime) / 1000);
     const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
     const seconds = (elapsed % 60).toString().padStart(2, '0');
-    DOM.matchTime.textContent = `${minutes}:${seconds}`;
+    if (DOM.matchTime) DOM.matchTime.textContent = `${minutes}:${seconds}`;
   }, 1000);
 }
 
@@ -572,7 +743,7 @@ function startPingMonitor() {
 
 socket.on('PONG', () => {
   const ping = Date.now() - GameState.lastPingTime;
-  DOM.pingDisplay.textContent = ping;
+  if (DOM.pingDisplay) DOM.pingDisplay.textContent = ping;
 });
 
 // ─── Match Over ────────────────────────────────────────────────────────────
@@ -583,27 +754,30 @@ function showMatchOver(data) {
   
   const isWinner = data.winnerId === GameState.playerId;
   
-  DOM.resultTitle.textContent = isWinner ? 'MENANG!' : 'KALAH!';
-  DOM.resultTitle.style.background = isWinner 
-    ? 'linear-gradient(135deg, var(--secondary), var(--primary-light))'
-    : 'linear-gradient(135deg, var(--danger), var(--warning))';
-  DOM.resultTitle.style.webkitBackgroundClip = 'text';
-  DOM.resultTitle.style.webkitTextFillColor = 'transparent';
+  if (DOM.resultTitle) {
+    DOM.resultTitle.textContent = isWinner ? 'MENANG!' : 'KALAH!';
+    DOM.resultTitle.style.color = isWinner ? 'var(--accent-warning)' : 'var(--accent-danger)';
+  }
   
-  DOM.resultSubtitle.textContent = isWinner 
-    ? 'Kamu memenangkan pertandingan!' 
-    : 'Lawan lebih kali ini!';
+  if (DOM.resultSubtitle) {
+    DOM.resultSubtitle.textContent = isWinner 
+      ? 'Selamat! Kamu memenangkan pertandingan!' 
+      : 'Lawan lebih kuat kali ini. Coba lagi!';
+  }
   
-  DOM.finalRopePos.textContent = data.finalRopePosition;
-  DOM.finalDuration.textContent = `${data.durationSeconds}s`;
+  if (DOM.finalRopePos) DOM.finalRopePos.textContent = data.finalRopePosition;
+  if (DOM.finalDuration) DOM.finalDuration.textContent = `${data.durationSeconds}s`;
   
-  // Update stats
   if (data.stats) {
-    updateMatchStats('p1', data.stats.p1, data.room?.players?.p1?.name || 'Player 1');
-    updateMatchStats('p2', data.stats.p2, data.room?.players?.p2?.name || 'Player 2');
+    updateMatchStats('p1', data.stats.p1, data.room?.players?.p1?.name || 'P1');
+    updateMatchStats('p2', data.stats.p2, data.room?.players?.p2?.name || 'P2');
   }
   
   showScreen('match-over');
+  
+  if (isWinner) {
+    setTimeout(() => createConfetti('confetti-container', 60), 500);
+  }
 }
 
 function updateMatchStats(slot, stats, name) {
@@ -614,23 +788,34 @@ function updateMatchStats(slot, stats, name) {
   const streakEl = document.getElementById(`stats-${slot}-streak`);
   
   if (nameEl) nameEl.textContent = name;
-  if (accEl) accEl.textContent = `${Math.round(stats.accuracy * 100)}%`;
-  if (timeEl) timeEl.textContent = `${Math.round(stats.avgResponseTimeSec * 1000)}ms`;
-  if (forceEl) forceEl.textContent = Math.round(stats.totalForce * 10) / 10;
-  if (streakEl) streakEl.textContent = stats.highestStreak;
+  if (accEl) accEl.textContent = `${Math.round((stats.accuracy || 0) * 100)}%`;
+  if (timeEl) timeEl.textContent = `${Math.round((stats.avgResponseTimeSec || 0) * 1000)}ms`;
+  if (forceEl) forceEl.textContent = Math.round((stats.totalForce || 0) * 10) / 10;
+  if (streakEl) streakEl.textContent = stats.highestStreak || 0;
 }
 
 // ─── Rematch & Navigation ──────────────────────────────────────────────────
-DOM.btnRematch.addEventListener('click', () => {
-  socket.emit('REMATCH_REQUEST', {});
-});
+if (DOM.btnRematch) {
+  DOM.btnRematch.addEventListener('click', () => {
+    socket.emit('REMATCH_REQUEST', {});
+  });
+}
 
-DOM.btnBackMenu.addEventListener('click', () => {
-  GameState.roomId = null;
-  GameState.slot = null;
-  GameState.isPlaying = false;
-  showScreen('main-menu');
-});
+if (DOM.btnBackMenu) {
+  DOM.btnBackMenu.addEventListener('click', () => {
+    GameState.roomId = null;
+    GameState.slot = null;
+    GameState.isPlaying = false;
+    showScreen('main-menu');
+  });
+}
 
 // ─── Initialize ────────────────────────────────────────────────────────────
 showScreen('main-menu');
+
+// Simulate online count
+setInterval(() => {
+  if (DOM.onlineCount) {
+    DOM.onlineCount.textContent = Math.floor(Math.random() * 50) + 10;
+  }
+}, 5000);

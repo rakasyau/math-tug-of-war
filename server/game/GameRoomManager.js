@@ -1,6 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const GameRoom = require('./GameRoom');
-const { MathEngine, CONFIG } = require('./MathEngine');
+const { CONFIG } = require('./MathEngine');
 
 class GameRoomManager {
   constructor() {
@@ -143,17 +143,17 @@ class GameRoomManager {
     const room = this.rooms.get(roomId);
     if (!room || room.gameState.status !== 'playing') return null;
     
-    const question = MathEngine.generateQuestion(
-      room.settings.difficulty,
-      room.gameState.currentQuestionSeed
-    );
+    const playerSlot = room.getPlayerSlot(playerId);
+    if (!playerSlot) return null;
     
-    // Return question WITHOUT answer (server never sends answer to client)
-    return {
+    // Return this player's current question (without answer)
+    const question = room.getPlayerQuestion(playerSlot);
+    
+    return question ? {
       questionId: question.questionId,
       prompt: question.prompt,
       options: question.options,
-    };
+    } : null;
   }
 }
 
