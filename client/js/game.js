@@ -19,6 +19,7 @@ const GameState = {
   correctCounts: { p1: 0, p2: 0 },
   totalAnswers: { p1: 0, p2: 0 },
   totalResponseTime: { p1: 0, p2: 0 },
+  ready: { p1: false, p2: false },
   matchStartTime: null,
   inputMode: 'multiple_choice',
   isStunned: false,
@@ -392,6 +393,32 @@ PeerManager.onDisconnected(() => {
   console.log('PEER: Disconnected');
   updateConnectionStatus('disconnected', 'Terputus!');
   if (window.SoundEngine) SoundEngine.play('wrong');
+  
+  // Reset ready states if in waiting room
+  if (GameState.ready) {
+    GameState.ready.p1 = false;
+    GameState.ready.p2 = false;
+    
+    // Update UI safely if functions are available
+    if (typeof updateReadyUI === 'function') {
+      updateReadyUI('p1', false);
+      updateReadyUI('p2', false);
+    }
+    
+    if (DOM.btnReady) {
+      DOM.btnReady.disabled = false;
+      DOM.btnReady.innerHTML = '<span class="btn-icon" data-icon="check"></span><span>READY</span>';
+      if (typeof injectIcons === 'function') injectIcons();
+    }
+    
+    // Reset guest UI if we are host
+    if (GameState.isHost) {
+      const card = document.getElementById('slot-p2');
+      if (card) card.classList.remove('connected', 'ready');
+      const nameEl = document.getElementById('p2-name');
+      if (nameEl) nameEl.textContent = 'Menunggu...';
+    }
+  }
 });
 
 PeerManager.onData((data) => {
@@ -409,6 +436,9 @@ function handlePeerData(data) {
       break;
     case 'ANSWER':
       handleOpponentAnswer(data);
+      break;
+    case 'PLAYER_READY':
+      handlePlayerReady(data);
       break;
     case 'GAME_STATE':
       handleGameState(data);
@@ -438,15 +468,48 @@ function handleGuestJoin(data) {
   
   if (window.SoundEngine) SoundEngine.play('notify');
   
-  // Send host info back to guest, then start after countdown
+  // Send host info back to guest
   PeerManager.send({
     type: 'HOST_INFO',
     playerName: GameState.playerName,
   });
-  
-  setTimeout(() => {
-    startGame();
-  }, 1500);
+}
+
+function handlePlayerReady(data) {
+  if (GameState.isHost) {
+    GameState.ready.p2 = true;
+    updateReadyUI('p2', true);
+    checkAllReady();
+  } else {
+    GameState.ready.p1 = true;
+    updateReadyUI('p1', true);
+  }
+  if (window.SoundEngine) SoundEngine.play('notify');
+}
+
+function updateReadyUI(slot, isReady) {
+  const card = document.getElementById(`slot-${slot}`);
+  if (card) {
+    const badgeText = card.querySelector('.badge-text');
+    const badgeIcon = card.querySelector('.badge-icon');
+    if (badgeText) badgeText.textContent = isReady ? 'SIAP!' : 'Belum Ready';
+    if (badgeIcon && window.GameIcons) {
+      badgeIcon.innerHTML = isReady ? GameIcons.check() : GameIcons.hourglass();
+    }
+    if (isReady) {
+      card.classList.add('ready');
+    } else {
+      card.classList.remove('ready');
+    }
+  }
+}
+
+function checkAllReady() {
+  if (GameState.isHost && GameState.ready.p1 && GameState.ready.p2) {
+    setTimeout(() => {
+      startGame();
+    }, 1000);
+  }
 }
 
 // ─── Start Game ────────────────────────────────────────────────────────────
@@ -1070,6 +1133,41 @@ function triggerStun() {
     // Re-enable all answer buttons
     document.querySelectorAll('.answer-btn').forEach(btn => btn.disabled = false);
   }, 600);
+}
+
+// Input toggle
+if (DOM.btnInputToggle) {
+  DOM.btnInputToggle.addEventListener('click', () => {
+    const isNumpad = GameState.inputMode === 'numpad';
+    GameState.inputMode = isNumpad ? 'multiple_choice' : 'numpad';
+    
+    DOM.btnInputToggle.innerHTML = isNumpad 
+      ? '<span class="btn-icon" data-icon="numpad"></span> OPSI GANDA'
+      : '<span class="btn-icon" data-icon="numpad"></span> NUMPAD';
+      
+    injectIcons();
+    if (window.SoundEngine) SoundEngine.play('click');
+  });
+}
+
+// Ready Button
+if (DOM.btnReady) {
+  DOM.btnReady.addEventListener('click', () => {
+    if (GameState.isHost) {
+      GameState.ready.p1 = true;
+      updateReadyUI('p1', true);
+      PeerManager.send({ type: 'PLAYER_READY' });
+      checkAllReady();
+    } else {
+      GameState.ready.p2 = true;
+      updateReadyUI('p2', true);
+      PeerManager.send({ type: 'PLAYER_READY' });
+    }
+    DOM.btnReady.disabled = true;
+    DOM.btnReady.innerHTML = '<span class="btn-icon" data-icon="hourglass"></span><span>MENUNGGU</span>';
+    injectIcons();
+    if (window.SoundEngine) SoundEngine.play('click');
+  });
 }
 
 // ─── Match Timer ───────────────────────────────────────────────────────────
