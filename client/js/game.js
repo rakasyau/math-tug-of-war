@@ -202,12 +202,14 @@ const MathEngine = {
         if (difficulty === 'hard') {
           a = rng.nextInt(2, 12);
           b = rng.nextInt(2, 12);
-          c = rng.nextInt(1, 20);
           if (rng.next() > 0.5) {
+            c = rng.nextInt(1, 20);
             answer = a * b + c;
             prompt = `${a} × ${b} + ${c}`;
           } else {
-            answer = a * b - c;
+            const product = a * b;
+            c = rng.nextInt(1, Math.min(20, product));
+            answer = product - c;
             prompt = `${a} × ${b} − ${c}`;
           }
         } else {
@@ -253,11 +255,14 @@ const MathEngine = {
 
   _generateDistractors(answer, rng) {
     const distractors = new Set();
-    distractors.add(answer + 1);
-    distractors.add(answer - 1);
-    distractors.add(answer + 10);
-    distractors.add(answer - 10);
-    while (distractors.size < 4) {
+    if (answer + 1 >= 0) distractors.add(answer + 1);
+    if (answer - 1 >= 0) distractors.add(answer - 1);
+    if (answer + 10 >= 0) distractors.add(answer + 10);
+    if (answer - 10 >= 0) distractors.add(answer - 10);
+    distractors.delete(answer);
+    let safety = 0;
+    while (distractors.size < 3 && safety < 50) {
+      safety++;
       const d = answer + rng.nextInt(-20, 20);
       if (d !== answer && d >= 0) distractors.add(d);
     }
@@ -438,6 +443,11 @@ function handlePeerData(data) {
   switch (data.type) {
     case 'JOIN':
       handleGuestJoin(data);
+      break;
+    case 'HOST_INFO':
+      GameState.opponentName = data.playerName || 'Host';
+      const nameEl = document.getElementById('p1-name');
+      if (nameEl) nameEl.textContent = data.playerName;
       break;
     case 'GAME_START':
       handleGameStart(data);
@@ -855,8 +865,15 @@ function handleOpponentAnswer(data) {
 function handleGameState(data) {
   updateGameStateLocal(data);
   
-  if (data.isCorrect && data.nextQuestion) {
-    showQuestion(data.nextQuestion);
+  // If this was OUR answer result (guest side)
+  if (data.answeredBy === GameState.slot) {
+    if (data.isCorrect && data.nextQuestion) {
+      // Correct: show next question
+      showQuestion(data.nextQuestion);
+    }
+    // Wrong answer: stun is already triggered in updateGameStateLocal,
+    // and after stun ends the buttons are re-enabled so player can retry
+    // the same question that's still displayed.
   }
   
   if (data.winnerId) {
@@ -1113,8 +1130,39 @@ function handleMatchOver(data) {
 
 function handleRematch(data) {
   if (data.accept) {
+    resetClientState();
     showScreen('waiting-room');
   }
+}
+
+function resetClientState() {
+  GameState.isPlaying = false;
+  GameState.currentQuestion = null;
+  GameState.ropePosition = 0;
+  GameState.scores = { p1: 0, p2: 0 };
+  GameState.streaks = { p1: 0, p2: 0 };
+  GameState.maxStreaks = { p1: 0, p2: 0 };
+  GameState.correctCounts = { p1: 0, p2: 0 };
+  GameState.totalAnswers = { p1: 0, p2: 0 };
+  GameState.totalResponseTime = { p1: 0, p2: 0 };
+  GameState.ready = { p1: false, p2: false };
+  GameState.matchStartTime = null;
+  GameState.isStunned = false;
+  GameState.numpadValue = '';
+  questionCounter = 0;
+  playerQuestions.p1 = { current: null, seed: null };
+  playerQuestions.p2 = { current: null, seed: null };
+  
+  // Reset ready button
+  if (DOM.btnReady) {
+    DOM.btnReady.disabled = false;
+    DOM.btnReady.innerHTML = '<span class="btn-icon" data-icon="check"></span><span>READY</span>';
+    injectIcons();
+  }
+  
+  // Reset ready UI
+  updateReadyUI('p1', false);
+  updateReadyUI('p2', false);
 }
 
 // ─── Feedback & Effects ────────────────────────────────────────────────────
@@ -1398,6 +1446,7 @@ if (DOM.btnCopyCode) {
 // ─── Match Over ────────────────────────────────────────────────────────────
 if (DOM.btnRematch) {
   DOM.btnRematch.addEventListener('click', () => {
+    resetClientState();
     PeerManager.send({ type: 'REMATCH', accept: true });
     showScreen('waiting-room');
   });
@@ -1474,17 +1523,4 @@ if (DOM.soundToggle) {
   });
 }
 
-// Handle HOST_INFO message for guest
-PeerManager.onData && (() => {
-  const originalHandler = handlePeerData;
-  window._peerDataHandler = (data) => {
-    if (data.type === 'HOST_INFO') {
-      GameState.opponentName = data.playerName || 'Host';
-      const nameEl = document.getElementById('p1-name');
-      if (nameEl) nameEl.textContent = data.playerName;
-      return;
-    }
-    originalHandler(data);
-  };
-  PeerManager.onData(window._peerDataHandler);
-})();
+// HOST_INFO is now handled directly in handlePeerData switch statement

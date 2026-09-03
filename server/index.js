@@ -268,6 +268,18 @@ io.on('connection', (socket) => {
     room.gameState.questionCounter = 0;
     room.readyState = {};
     
+    // Reset player stats
+    room.playerStats = {
+      p1: { score: 0, streak: 0, maxStreak: 0, correctCount: 0, totalAnswers: 0, totalResponseTime: 0 },
+      p2: { score: 0, streak: 0, maxStreak: 0, correctCount: 0, totalAnswers: 0, totalResponseTime: 0 },
+    };
+    
+    // Reset player questions
+    room.playerQuestions = {
+      p1: { current: null, seed: null, history: [] },
+      p2: { current: null, seed: null, history: [] },
+    };
+    
     io.to(room.roomId).emit('REMATCH_ACCEPTED', {
       room: room.getPublicState(),
     });

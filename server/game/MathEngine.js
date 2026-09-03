@@ -79,12 +79,15 @@ class MathEngine {
           // Hard: two-stage operations
           a = rng.nextInt(2, 12);
           b = rng.nextInt(2, 12);
-          c = rng.nextInt(1, 20);
           if (rng.next() > 0.5) {
+            c = rng.nextInt(1, 20);
             answer = a * b + c;
             prompt = `${a} × ${b} + ${c}`;
           } else {
-            answer = a * b - c;
+            // Ensure c <= a*b so answer is non-negative
+            const product = a * b;
+            c = rng.nextInt(1, Math.min(20, product));
+            answer = product - c;
             prompt = `${a} × ${b} − ${c}`;
           }
           break;
@@ -136,13 +139,18 @@ class MathEngine {
     const distractors = new Set();
     
     // Smart distractors: ±1, ±10, off-by-one digit
-    distractors.add(answer + 1);
-    distractors.add(answer - 1);
-    distractors.add(answer + 10);
-    distractors.add(answer - 10);
+    if (answer + 1 >= 0) distractors.add(answer + 1);
+    if (answer - 1 >= 0) distractors.add(answer - 1);
+    if (answer + 10 >= 0) distractors.add(answer + 10);
+    if (answer - 10 >= 0) distractors.add(answer - 10);
     
-    // Random distractors
-    while (distractors.size < 4) {
+    // Remove the answer itself from distractors (e.g. answer=0, answer+0)
+    distractors.delete(answer);
+    
+    // Random distractors to fill up to at least 3
+    let safety = 0;
+    while (distractors.size < 3 && safety < 50) {
+      safety++;
       const d = answer + rng.nextInt(-20, 20);
       if (d !== answer && d >= 0) distractors.add(d);
     }

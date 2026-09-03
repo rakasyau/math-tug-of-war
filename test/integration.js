@@ -33,24 +33,25 @@ console.log('  P2 question:', q2.prompt, '| options:', q2.options.join(', '));
 console.log('  Answer in P1 payload:', JSON.stringify(q1).includes('"answer"') ? 'YES ✗ SECURITY ISSUE' : 'NO ✓ SECURE');
 console.log('  Answer in P2 payload:', JSON.stringify(q2).includes('"answer"') ? 'YES ✗ SECURITY ISSUE' : 'NO ✓ SECURE');
 
-// STEP 5: Simulate Budi answers correctly
+// STEP 5: Simulate Budi answers correctly (use per-player question)
 console.log('\nSTEP 5: Budi answers correctly');
-const realQ1 = MathEngine.generateQuestion('medium', room.gameState.currentQuestionSeed);
+const realQ1 = room.getPlayerQuestion('p1');
 const answer1 = realQ1.answer;
 console.log('  Correct answer:', answer1);
 const result1 = manager.submitAnswer(roomCode, 'p_budi', q1.questionId, answer1, Date.now());
 console.log('  Result: isCorrect=', result1.isCorrect, '| force=', result1.forceApplied, '| ropePos=', Math.round(room.gameState.ropePosition*10)/10);
 
-// STEP 6: Simulate Andi answers correctly
+// STEP 6: Simulate Andi answers correctly (use per-player question)
 console.log('\nSTEP 6: Andi answers correctly');
-const realQ2 = MathEngine.generateQuestion('medium', room.gameState.currentQuestionSeed);
+const realQ2 = room.getPlayerQuestion('p2');
 const answer2 = realQ2.answer;
 const result2 = manager.submitAnswer(roomCode, 'p_andi', q2.questionId, answer2, Date.now());
 console.log('  Result: isCorrect=', result2.isCorrect, '| force=', result2.forceApplied, '| ropePos=', Math.round(room.gameState.ropePosition*10)/10);
 
 // STEP 7: Simulate wrong answer
 console.log('\nSTEP 7: Budi answers wrong');
-const result3 = manager.submitAnswer(roomCode, 'p_budi', 'q_wrong', -999, Date.now());
+const currentQ = room.getPlayerQuestion('p1');
+const result3 = manager.submitAnswer(roomCode, 'p_budi', currentQ.questionId, -999, Date.now());
 console.log('  Result: isCorrect=', result3.isCorrect, '| force=', result3.forceApplied, '(should be 0)');
 
 // STEP 8: Simulate many correct answers to trigger win
@@ -58,16 +59,25 @@ console.log('\nSTEP 8: Simulating match to completion...');
 let safety = 0;
 while (room.gameState.status === 'playing' && safety < 50) {
   safety++;
-  const q = MathEngine.generateQuestion('medium', room.gameState.currentQuestionSeed);
-  const fastResponse = 0.5;
-  const force = MathEngine.calculateForce(fastResponse, 'medium', 0);
+  // Alternate players answering correctly
   if (safety % 2 === 0) {
-    room.applyForce('p1', force);
+    const q = room.getPlayerQuestion('p1');
+    if (q) manager.submitAnswer(roomCode, 'p_budi', q.questionId, q.answer, Date.now());
   } else {
-    room.applyForce('p2', force);
+    const q = room.getPlayerQuestion('p2');
+    if (q) manager.submitAnswer(roomCode, 'p_andi', q.questionId, q.answer, Date.now());
   }
-  room.checkWinCondition();
 }
+
+// If game didn't end from balanced play, force one side
+if (room.gameState.status === 'playing') {
+  while (room.gameState.status === 'playing' && safety < 100) {
+    safety++;
+    const q = room.getPlayerQuestion('p1');
+    if (q) manager.submitAnswer(roomCode, 'p_budi', q.questionId, q.answer, Date.now());
+  }
+}
+
 console.log('  Game ended! Status:', room.gameState.status);
 console.log('  Winner:', room.gameState.winnerId);
 console.log('  Final rope position:', Math.round(room.gameState.ropePosition*10)/10);

@@ -38,10 +38,10 @@ class GameRoom {
   }
   
   addPlayer(playerId, playerName, slot = null) {
-    if (slot === 'p1' || (!this.players.p1 && this.players.p2 !== playerId)) {
+    if (slot === 'p1' || (!this.players.p1 && this.players.p2?.id !== playerId)) {
       this.players.p1 = { id: playerId, name: playerName };
       return 'p1';
-    } else if (slot === 'p2' || (!this.players.p2 && this.players.p1 !== playerId)) {
+    } else if (slot === 'p2' || (!this.players.p2 && this.players.p1?.id !== playerId)) {
       this.players.p2 = { id: playerId, name: playerName };
       return 'p2';
     }
