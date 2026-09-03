@@ -39,6 +39,11 @@ const DOM = {
   joinRoomModal: document.getElementById('join-room-modal'),
   countdownOverlay: document.getElementById('countdown-overlay'),
   countdownNumber: document.getElementById('countdown-number'),
+  matchmakingOverlay: document.getElementById('matchmaking-overlay'),
+  matchmakingStatus: document.getElementById('matchmaking-status'),
+  matchmakingTimer: document.getElementById('matchmaking-timer'),
+  matchmakingDiff: document.getElementById('matchmaking-diff'),
+  btnCancelMatchmaking: document.getElementById('btn-cancel-matchmaking'),
   
   btnQuickMatch: document.getElementById('btn-quick-match'),
   btnCreateRoom: document.getElementById('btn-create-room'),
@@ -1293,28 +1298,123 @@ if (DOM.diffBtns) {
   });
 }
 
+// ─── Matchmaking Overlay Control ───────────────────────────────────────────
+let matchmakingTimerInterval = null;
+
+function showMatchmakingOverlay() {
+  if (DOM.matchmakingOverlay) {
+    DOM.matchmakingOverlay.classList.add('active');
+    injectIcons();
+  }
+  // Start timer
+  const startTime = Date.now();
+  if (DOM.matchmakingTimer) DOM.matchmakingTimer.textContent = '00:00';
+  matchmakingTimerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const secs = (elapsed % 60).toString().padStart(2, '0');
+    if (DOM.matchmakingTimer) DOM.matchmakingTimer.textContent = `${mins}:${secs}`;
+  }, 1000);
+  // Set difficulty badge
+  const diffNames = { easy: 'MUDAH', medium: 'SEDANG', hard: 'SULIT' };
+  if (DOM.matchmakingDiff) {
+    DOM.matchmakingDiff.innerHTML = `<span class="diff-badge">${diffNames[GameState.difficulty] || 'SEDANG'}</span>`;
+  }
+}
+
+function hideMatchmakingOverlay() {
+  if (DOM.matchmakingOverlay) DOM.matchmakingOverlay.classList.remove('active');
+  if (matchmakingTimerInterval) {
+    clearInterval(matchmakingTimerInterval);
+    matchmakingTimerInterval = null;
+  }
+}
+
+// Listen for matchmaking status updates from PeerManager
+PeerManager.onMatchmakingStatus((status, detail) => {
+  console.log('[GAME] Matchmaking status:', status, detail);
+  if (DOM.matchmakingStatus) DOM.matchmakingStatus.textContent = detail;
+  
+  if (status === 'scanning') {
+    if (DOM.matchmakingOverlay) {
+      const title = DOM.matchmakingOverlay.querySelector('.matchmaking-title');
+      if (title) title.textContent = 'Mencari Lawan...';
+    }
+  } else if (status === 'waiting') {
+    if (DOM.matchmakingOverlay) {
+      const title = DOM.matchmakingOverlay.querySelector('.matchmaking-title');
+      if (title) title.textContent = 'Menunggu Lawan...';
+    }
+  }
+});
+
 // ─── Menu Event Listeners ──────────────────────────────────────────────────
 if (DOM.btnQuickMatch) {
   DOM.btnQuickMatch.addEventListener('click', () => {
     if (window.SoundEngine) SoundEngine.play('click');
-    // Quick match: auto-create a room with default settings
+    
+    // Generate a player name for matchmaking
     GameState.playerName = `Player_${Math.floor(Math.random() * 9999)}`;
-    GameState.isHost = true;
-    GameState.slot = 'p1';
     
-    updateConnectionStatus('connecting', 'Membuat room...');
+    // Show matchmaking overlay
+    showMatchmakingOverlay();
+    updateConnectionStatus('connecting', 'Mencari lawan...');
     
-    PeerManager.createRoom().then(result => {
-      GameState.roomId = result.roomCode;
-      if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = result.roomCode;
-      if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
-      showScreen('waiting-room');
-      updateConnectionStatus('connected', 'Menunggu lawan...');
-    }).catch(err => {
-      console.error('[GAME] Quick match failed:', err);
-      alert('Gagal membuat room: ' + err.message);
-      updateConnectionStatus('disconnected', 'Gagal');
-    });
+    // Start real matchmaking
+    PeerManager.findMatch(GameState.difficulty, GameState.playerName)
+      .then(result => {
+        hideMatchmakingOverlay();
+        
+        // Set up game state based on matchmaking result
+        GameState.isHost = result.role === 'host';
+        GameState.slot = result.role === 'host' ? 'p1' : 'p2';
+        GameState.roomId = result.roomCode;
+        GameState.opponentName = result.opponentName;
+        
+        // Update waiting room UI
+        if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = result.roomCode;
+        
+        if (GameState.isHost) {
+          if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
+          if (DOM.p2NameWaiting) DOM.p2NameWaiting.textContent = result.opponentName;
+        } else {
+          if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = result.opponentName;
+          if (DOM.p2NameWaiting) DOM.p2NameWaiting.textContent = GameState.playerName;
+        }
+        
+        // Send player info to opponent
+        PeerManager.send({
+          type: GameState.isHost ? 'HOST_INFO' : 'JOIN',
+          playerName: GameState.playerName,
+          settings: {
+            difficulty: GameState.difficulty,
+            winThreshold: GameState.winThreshold,
+            inputMode: GameState.inputMode,
+          }
+        });
+        
+        showScreen('waiting-room');
+        updateConnectionStatus('connected', 'Terhubung!');
+        if (window.SoundEngine) SoundEngine.play('connect');
+      })
+      .catch(err => {
+        hideMatchmakingOverlay();
+        console.error('[GAME] Matchmaking failed:', err);
+        if (err.message !== 'Matchmaking cancelled') {
+          alert(err.message || 'Gagal mencari lawan');
+        }
+        updateConnectionStatus('disconnected', 'Tidak terhubung');
+      });
+  });
+}
+
+// Cancel matchmaking
+if (DOM.btnCancelMatchmaking) {
+  DOM.btnCancelMatchmaking.addEventListener('click', () => {
+    if (window.SoundEngine) SoundEngine.play('click');
+    PeerManager.cancelMatchmaking();
+    hideMatchmakingOverlay();
+    updateConnectionStatus('disconnected', 'Dibatalkan');
   });
 }
 

@@ -29,6 +29,29 @@
       </div>
     </div>
     
+    <!-- Matchmaking Overlay -->
+    <div id="matchmaking-overlay" class="matchmaking-overlay">
+      <div class="matchmaking-content">
+        <div class="matchmaking-radar">
+          <div class="radar-ring radar-ring-1"></div>
+          <div class="radar-ring radar-ring-2"></div>
+          <div class="radar-ring radar-ring-3"></div>
+          <div class="radar-center">
+            <span class="radar-icon" data-icon="lightning"><!-- SVG --></span>
+          </div>
+        </div>
+        <h2 class="matchmaking-title">Mencari Lawan...</h2>
+        <p class="matchmaking-status" id="matchmaking-status">Memindai slot antrian...</p>
+        <div class="matchmaking-timer" id="matchmaking-timer">00:00</div>
+        <div class="matchmaking-diff" id="matchmaking-diff">
+          <span class="diff-badge">SEDANG</span>
+        </div>
+        <button type="button" id="btn-cancel-matchmaking" class="btn btn-ghost matchmaking-cancel">
+          Batal
+        </button>
+      </div>
+    </div>
+    
     <!-- Main Menu Screen -->
     <div id="main-menu" class="screen active">
 
