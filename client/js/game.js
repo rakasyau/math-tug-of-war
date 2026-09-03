@@ -386,17 +386,22 @@ PeerManager.onConnected(() => {
   updateConnectionStatus('connected', 'Terhubung');
   
   if (GameState.isHost) {
-    showScreen('waiting-room');
+    const cardP1 = document.getElementById('slot-p1');
+    if (cardP1) cardP1.classList.add('connected');
     if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = GameState.roomId;
     if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
   } else {
-    PeerManager.send({
-      type: 'JOIN',
-      playerName: GameState.playerName,
-    });
+    setTimeout(() => {
+      PeerManager.send({
+        type: 'JOIN',
+        playerName: GameState.playerName,
+      });
+    }, 100);
     showScreen('waiting-room');
     if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = GameState.roomId;
     if (DOM.p2NameWaiting) DOM.p2NameWaiting.textContent = GameState.playerName;
+    const cardP2 = document.getElementById('slot-p2');
+    if (cardP2) cardP2.classList.add('connected');
   }
 });
 
@@ -451,8 +456,16 @@ function handlePeerData(data) {
       break;
     case 'HOST_INFO':
       GameState.opponentName = data.playerName || 'Host';
+      if (data.settings) {
+        GameState.difficulty = data.settings.difficulty || GameState.difficulty;
+        GameState.winThreshold = data.settings.winThreshold || GameState.winThreshold;
+        GameState.inputMode = data.settings.inputMode || GameState.inputMode;
+      }
       const nameEl = document.getElementById('p1-name');
       if (nameEl) nameEl.textContent = data.playerName;
+      const cardP1 = document.getElementById('slot-p1');
+      if (cardP1) cardP1.classList.add('connected');
+      if (window.SoundEngine) SoundEngine.play('notify');
       break;
     case 'GAME_START':
       handleGameStart(data);
@@ -491,21 +504,26 @@ function handleGuestJoin(data) {
   
   if (window.SoundEngine) SoundEngine.play('notify');
   
-  // Send host info back to guest
-  PeerManager.send({
-    type: 'HOST_INFO',
-    playerName: GameState.playerName,
-  });
+  // Send host info and room settings back to guest
+  setTimeout(() => {
+    PeerManager.send({
+      type: 'HOST_INFO',
+      playerName: GameState.playerName,
+      settings: {
+        difficulty: GameState.difficulty,
+        winThreshold: GameState.winThreshold,
+        inputMode: GameState.inputMode,
+      }
+    });
+  }, 100);
 }
 
 function handlePlayerReady(data) {
+  const slot = data?.slot || (GameState.isHost ? 'p2' : 'p1');
+  GameState.ready[slot] = true;
+  updateReadyUI(slot, true);
   if (GameState.isHost) {
-    GameState.ready.p2 = true;
-    updateReadyUI('p2', true);
     checkAllReady();
-  } else {
-    GameState.ready.p1 = true;
-    updateReadyUI('p1', true);
   }
   if (window.SoundEngine) SoundEngine.play('notify');
 }
@@ -1224,15 +1242,19 @@ if (DOM.btnInputToggle) {
 // Ready Button
 if (DOM.btnReady) {
   DOM.btnReady.addEventListener('click', () => {
-    if (GameState.isHost) {
+    if (!PeerManager.isConnected) {
+      alert('Lawan belum terhubung!');
+      return;
+    }
+    if (GameState.slot === 'p1' || GameState.isHost) {
       GameState.ready.p1 = true;
       updateReadyUI('p1', true);
-      PeerManager.send({ type: 'PLAYER_READY' });
+      PeerManager.send({ type: 'PLAYER_READY', slot: 'p1' });
       checkAllReady();
     } else {
       GameState.ready.p2 = true;
       updateReadyUI('p2', true);
-      PeerManager.send({ type: 'PLAYER_READY' });
+      PeerManager.send({ type: 'PLAYER_READY', slot: 'p2' });
     }
     DOM.btnReady.disabled = true;
     DOM.btnReady.innerHTML = '<span class="btn-icon" data-icon="hourglass"></span><span>MENUNGGU</span>';
@@ -1435,7 +1457,7 @@ if (DOM.btnJoinRoom) {
 if (DOM.btnConfirmCreate) {
   DOM.btnConfirmCreate.addEventListener('click', async () => {
     if (window.SoundEngine) SoundEngine.play('click');
-    GameState.playerName = DOM.playerName.value || GameState.playerName;
+    GameState.playerName = DOM.playerName.value ? DOM.playerName.value.trim() : GameState.playerName;
     GameState.isHost = true;
     GameState.slot = 'p1';
     
@@ -1443,7 +1465,7 @@ if (DOM.btnConfirmCreate) {
     if (DOM.winThreshold) GameState.winThreshold = parseInt(DOM.winThreshold.value);
     
     hideModal(DOM.createRoomModal);
-    updateConnectionStatus('connecting', 'Membuat room...');
+    updateConnectionStatus('connecting', 'Mendaftarkan room...');
     
     console.log('[GAME] Creating room...');
     
@@ -1453,12 +1475,23 @@ if (DOM.btnConfirmCreate) {
       GameState.roomId = result.roomCode;
       if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = result.roomCode;
       if (DOM.p1NameWaiting) DOM.p1NameWaiting.textContent = GameState.playerName;
+      
+      const cardP1 = document.getElementById('slot-p1');
+      if (cardP1) cardP1.classList.add('connected');
+      const cardP2 = document.getElementById('slot-p2');
+      if (cardP2) {
+        cardP2.classList.remove('connected', 'ready');
+        const p2Name = document.getElementById('p2-name');
+        if (p2Name) p2Name.textContent = 'Menunggu...';
+      }
+      
       showScreen('waiting-room');
       updateConnectionStatus('connected', 'Menunggu lawan...');
     } catch (err) {
       console.error('[GAME] Failed to create room:', err);
-      alert('Gagal membuat room: ' + err.message + '\n\nPastikan koneksi internet stabil.');
+      alert(err.message || 'Gagal membuat room. Pastikan koneksi internet stabil.');
       updateConnectionStatus('disconnected', 'Gagal membuat room');
+      showScreen('main-menu');
     }
   });
 }
@@ -1470,33 +1503,38 @@ if (DOM.btnCancelCreate) {
 if (DOM.btnConfirmJoin) {
   DOM.btnConfirmJoin.addEventListener('click', async () => {
     if (window.SoundEngine) SoundEngine.play('click');
-    GameState.playerName = DOM.joinPlayerName.value || GameState.playerName;
+    GameState.playerName = DOM.joinPlayerName.value ? DOM.joinPlayerName.value.trim() : GameState.playerName;
     GameState.isHost = false;
     GameState.slot = 'p2';
     
-    const code = DOM.roomCode.value;
+    const code = DOM.roomCode.value ? DOM.roomCode.value.trim() : '';
     if (!code || code.length !== 6) {
-      alert('Kode room harus 6 digit!');
+      alert('Kode room harus 6 digit angka!');
       return;
     }
     
     hideModal(DOM.joinRoomModal);
-    updateConnectionStatus('connecting', 'Menghubungkan...');
+    updateConnectionStatus('connecting', 'Menghubungkan ke room ' + code + '...');
     
     console.log('[GAME] Joining room', code);
     
     try {
       await PeerManager.joinRoom(code);
       GameState.roomId = code;
-      console.log('[GAME] Join request sent, waiting for host...');
+      console.log('[GAME] Successfully connected to host!');
       if (DOM.roomCodeDisplay) DOM.roomCodeDisplay.textContent = code;
       if (DOM.p2NameWaiting) DOM.p2NameWaiting.textContent = GameState.playerName;
+      
+      const cardP2 = document.getElementById('slot-p2');
+      if (cardP2) cardP2.classList.add('connected');
+      
       showScreen('waiting-room');
-      updateConnectionStatus('connecting', 'Menunggu host...');
+      updateConnectionStatus('connected', 'Terhubung dengan Host!');
     } catch (err) {
       console.error('[GAME] Failed to join room:', err);
-      alert('Gagal bergabung ke room: ' + err.message);
+      alert(err.message || 'Gagal bergabung ke room.');
       updateConnectionStatus('disconnected', 'Gagal bergabung');
+      showScreen('main-menu');
     }
   });
 }

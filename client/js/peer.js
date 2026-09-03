@@ -17,14 +17,38 @@ const PeerManager = (() => {
   const SCAN_TIMEOUT_MS = 3500;
   const WAIT_TIMEOUT_MS = 60000;
   
+  // Comprehensive ICE Configuration (Google STUN + Metered OpenRelay TURN)
+  // TURN relay is essential for NAT traversal across mobile cellular networks (CGNAT/Symmetric NAT)
   const PEER_CONFIG = {
+    debug: 1,
     config: {
       iceServers: [
+        // Google Public STUN
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' }
-      ]
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        
+        // Metered OpenRelay STUN + TURN (Public & Free WebRTC Relay)
+        { urls: 'stun:openrelay.metered.ca:80' },
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        }
+      ],
+      iceCandidatePoolSize: 10
     }
   };
   
@@ -44,16 +68,14 @@ const PeerManager = (() => {
   function findMatch(difficulty, playerName) {
     return new Promise((resolve, reject) => {
       if (matchmakingActive) {
-        reject(new Error('Matchmaking already in progress'));
+        reject(new Error('Pencarian lawan sedang berlangsung'));
         return;
       }
       
       matchmakingActive = true;
       
       // Clean up any existing connections
-      if (peer) { peer.destroy(); peer = null; }
-      if (conn) { conn = null; }
-      connected = false;
+      disconnect();
       
       console.log(`[MM] Starting matchmaking for difficulty: ${difficulty}`);
       emitStatus('scanning', 'Mencari lawan...');
@@ -62,7 +84,7 @@ const PeerManager = (() => {
       scanForMatch(difficulty, playerName)
         .then(result => {
           if (!matchmakingActive) {
-            reject(new Error('Matchmaking cancelled'));
+            reject(new Error('Matchmaking dibatalkan'));
             return;
           }
           if (result) {
@@ -76,7 +98,7 @@ const PeerManager = (() => {
             waitForMatch(difficulty, playerName)
               .then(result => {
                 if (!matchmakingActive) {
-                  reject(new Error('Matchmaking cancelled'));
+                  reject(new Error('Matchmaking dibatalkan'));
                   return;
                 }
                 if (result) {
@@ -84,7 +106,7 @@ const PeerManager = (() => {
                   finishMatchmaking(result, resolve);
                 } else {
                   matchmakingActive = false;
-                  reject(new Error('Tidak ada lawan ditemukan. Coba lagi!'));
+                  reject(new Error('Tidak ada lawan ditemukan saat ini. Coba lagi atau ajak teman lewat kode room!'));
                 }
               })
               .catch(err => {
@@ -122,18 +144,15 @@ const PeerManager = (() => {
   // Phase 1: Try to connect to existing queue slots
   function scanForMatch(difficulty, playerName) {
     return new Promise(async (resolve) => {
-      // Create a temporary anonymous peer for scanning
       const scanPeer = new Peer(PEER_CONFIG);
       
-      await new Promise((res, rej) => {
+      await new Promise((res) => {
         scanPeer.on('open', () => res());
         scanPeer.on('error', (err) => {
-          console.log('[MM] Scan peer error:', err.type);
-          // If peer creation fails, just resolve null (will proceed to waiting)
+          console.log('[MM] Scan peer error:', err?.type);
           res();
         });
-        // Timeout for peer creation
-        setTimeout(() => res(), 5000);
+        setTimeout(() => res(), 4000);
       });
       
       if (!matchmakingActive || scanPeer.destroyed) {
@@ -144,7 +163,6 @@ const PeerManager = (() => {
       
       console.log('[MM] Scan peer ready, checking slots...');
       
-      // Try each slot sequentially
       for (let slot = 0; slot < QUEUE_SLOTS; slot++) {
         if (!matchmakingActive) {
           scanPeer.destroy();
@@ -159,7 +177,6 @@ const PeerManager = (() => {
         const result = await tryConnectToSlot(scanPeer, peerId, playerName);
         
         if (result) {
-          // Successfully matched! Don't destroy scanPeer — it's now our game peer
           resolve({
             role: 'guest',
             roomCode: result.roomCode,
@@ -171,7 +188,6 @@ const PeerManager = (() => {
         }
       }
       
-      // No match found in any slot
       console.log('[MM] No matches found in any slot');
       scanPeer.destroy();
       resolve(null);
@@ -208,7 +224,7 @@ const PeerManager = (() => {
       });
       
       testConn.on('data', (data) => {
-        if (data.type === 'MM_WELCOME' && !resolved) {
+        if (data && data.type === 'MM_WELCOME' && !resolved) {
           resolved = true;
           clearTimeout(timeout);
           console.log(`[MM] Received WELCOME from ${data.playerName}`);
@@ -236,8 +252,6 @@ const PeerManager = (() => {
       const code = generateCode();
       let resolved = false;
       let waitPeer = null;
-      
-      // Try to register at an available slot
       let registeredSlot = -1;
       
       for (let slot = 0; slot < QUEUE_SLOTS; slot++) {
@@ -262,15 +276,13 @@ const PeerManager = (() => {
       
       if (registeredSlot === -1) {
         console.log('[MM] All slots full!');
-        emitStatus('error', 'Antrian penuh, coba lagi...');
+        emitStatus('error', 'Antrian penuh, coba lagi sebentar...');
         resolve(null);
         return;
       }
       
-      // Store reference so cancelMatchmaking can clean up
       matchmakingPeer = waitPeer;
       
-      // Wait timeout
       const waitTimeout = setTimeout(() => {
         if (!resolved) {
           resolved = true;
@@ -282,15 +294,13 @@ const PeerManager = (() => {
         }
       }, WAIT_TIMEOUT_MS);
       
-      // Listen for incoming connections
       waitPeer.on('connection', (incomingConn) => {
-        console.log('[MM] Incoming connection!');
+        console.log('[MM] Incoming connection from seeker!');
         
         incomingConn.on('data', (data) => {
-          if (data.type === 'MM_HELLO' && !resolved) {
+          if (data && data.type === 'MM_HELLO' && !resolved) {
             console.log(`[MM] Received HELLO from ${data.playerName}`);
             
-            // Send welcome back
             incomingConn.send({
               type: 'MM_WELCOME',
               playerName: playerName,
@@ -301,8 +311,6 @@ const PeerManager = (() => {
             clearTimeout(waitTimeout);
             matchmakingPeer = null;
             
-            // We need to re-create as the game host with proper room ID
-            // But first, use this connection for the game
             resolve({
               role: 'host',
               roomCode: code,
@@ -318,18 +326,16 @@ const PeerManager = (() => {
         });
       });
       
-      // Handle peer disconnect while waiting
       waitPeer.on('disconnected', () => {
         if (!resolved) {
-          console.log('[MM] Wait peer disconnected, trying to reconnect...');
+          console.log('[MM] Wait peer disconnected, reconnecting...');
           try { waitPeer.reconnect(); } catch(e) {}
         }
       });
       
       waitPeer.on('error', (err) => {
-        console.log('[MM] Wait peer error:', err.type);
-        if (err.type === 'unavailable-id' || err.type === 'server-error') {
-          // Slot became unavailable — someone else took it
+        console.log('[MM] Wait peer error:', err?.type);
+        if (err && (err.type === 'unavailable-id' || err.type === 'server-error')) {
           if (!resolved) {
             resolved = true;
             clearTimeout(waitTimeout);
@@ -341,7 +347,6 @@ const PeerManager = (() => {
     });
   }
   
-  // Try to register a peer at a specific ID
   function tryRegisterSlot(peerId) {
     return new Promise((resolve) => {
       let resolved = false;
@@ -369,7 +374,7 @@ const PeerManager = (() => {
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);
-          console.log(`[MM] Slot ${peerId} taken or error: ${err.type}`);
+          console.log(`[MM] Slot ${peerId} taken or error: ${err?.type}`);
           if (!testPeer.destroyed) testPeer.destroy();
           resolve(null);
         }
@@ -386,7 +391,6 @@ const PeerManager = (() => {
       matchmakingPeer = null;
     }
     
-    // Also clean up main peer if it was created during scanning
     if (peer && !peer.destroyed) {
       peer.destroy();
       peer = null;
@@ -400,19 +404,32 @@ const PeerManager = (() => {
     isHost = true;
     roomCode = generateCode();
     
-    if (peer) peer.destroy();
+    disconnect();
     
-    return new Promise((resolve) => {
-      setTimeout(() => resolve({ roomCode }), 500);
+    return new Promise((resolve, reject) => {
+      let isSettled = false;
+      
+      const timeout = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          disconnect();
+          reject(new Error('Waktu koneksi habis saat membuat room. Periksa koneksi internetmu dan coba lagi.'));
+        }
+      }, 12000);
       
       peer = new Peer('mtow-' + roomCode, PEER_CONFIG);
       
       peer.on('open', (id) => {
-        console.log('[PEER] Host ready, id:', id);
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          console.log('[PEER] Host room registered successfully, id:', id);
+          resolve({ roomCode });
+        }
       });
       
       peer.on('connection', (c) => {
-        console.log('[PEER] Guest connected!');
+        console.log('[PEER] Guest incoming connection accepted!');
         conn = c;
         setupConn();
         connected = true;
@@ -421,12 +438,22 @@ const PeerManager = (() => {
       
       peer.on('error', (err) => {
         console.error('[PEER] Host error:', err);
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          disconnect();
+          if (err?.type === 'unavailable-id') {
+            // Collision, auto retry with new code
+            createRoom().then(resolve).catch(reject);
+            return;
+          }
+          reject(new Error('Gagal membuat room: ' + (err?.message || err?.type || 'Unknown error')));
+        }
       });
       
       peer.on('disconnected', () => {
-        console.log('[PEER] Host disconnected');
-        connected = false;
-        if (onDisconnectCb) onDisconnectCb();
+        console.log('[PEER] Host disconnected from broker server, reconnecting...');
+        try { peer.reconnect(); } catch(e) {}
       });
     });
   }
@@ -436,45 +463,88 @@ const PeerManager = (() => {
     isHost = false;
     roomCode = code;
     
-    if (peer) peer.destroy();
+    disconnect();
     
-    return new Promise((resolve) => {
-      setTimeout(() => resolve({ roomCode: code }), 500);
+    return new Promise((resolve, reject) => {
+      let isSettled = false;
+      
+      const timeout = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          disconnect();
+          reject(new Error(`Gagal terhubung ke room "${code}" (timeout). Pastikan pembuat room masih menunggu dan kode sudah benar.`));
+        }
+      }, 15000);
       
       peer = new Peer(PEER_CONFIG);
       
-      peer.on('open', () => {
-        console.log('[PEER] Guest ready, connecting to host...');
-        conn = peer.connect('mtow-' + code, { reliable: true });
+      peer.on('open', (myId) => {
+        console.log('[PEER] Guest peer open with id:', myId, 'connecting to mtow-' + code);
+        
+        conn = peer.connect('mtow-' + code, {
+          reliable: true
+        });
         
         conn.on('open', () => {
-          console.log('[PEER] Connected to host!');
-          setupConn();
-          connected = true;
-          if (onConnectCb) onConnectCb();
+          if (!isSettled) {
+            isSettled = true;
+            clearTimeout(timeout);
+            console.log('[PEER] Data connection established with host!');
+            setupConn();
+            connected = true;
+            if (onConnectCb) onConnectCb();
+            resolve({ roomCode: code });
+          }
         });
         
         conn.on('error', (err) => {
-          console.error('[PEER] Connection error:', err);
+          console.error('[PEER] Conn error:', err);
+          if (!isSettled) {
+            isSettled = true;
+            clearTimeout(timeout);
+            disconnect();
+            reject(new Error('Koneksi ke host gagal: ' + (err?.message || err?.type || 'Connection error')));
+          }
+        });
+        
+        conn.on('close', () => {
+          console.log('[PEER] Connection closed');
+          connected = false;
+          if (onDisconnectCb) onDisconnectCb();
         });
       });
       
       peer.on('error', (err) => {
-        console.error('[PEER] Guest error:', err);
+        console.error('[PEER] Guest peer error:', err);
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeout);
+          disconnect();
+          if (err?.type === 'peer-unavailable') {
+            reject(new Error(`Room "${code}" tidak ditemukan! Pastikan temanmu sudah klik "Buat Room" dan masih berada di layar waiting room.`));
+          } else {
+            reject(new Error('Gagal menghubungkan: ' + (err?.message || err?.type || 'Network error')));
+          }
+        }
       });
     });
   }
   
   // ─── Connection Management ────────────────────────────────────────────────
   function setupConn() {
+    if (!conn) return;
+    
     conn.on('data', (d) => {
-      console.log('[PEER] Data:', d.type);
+      console.log('[PEER] Data received:', d?.type);
       if (onDataCb) onDataCb(d);
     });
+    
     conn.on('close', () => {
+      console.log('[PEER] Connection closed');
       connected = false;
       if (onDisconnectCb) onDisconnectCb();
     });
+    
     conn.on('error', (err) => {
       console.error('[PEER] Conn error:', err);
     });
@@ -482,21 +552,31 @@ const PeerManager = (() => {
   
   function send(data) {
     if (conn && conn.open) {
-      conn.send(data);
-      return true;
+      try {
+        conn.send(data);
+        return true;
+      } catch (err) {
+        console.error('[PEER] Send error:', err);
+        return false;
+      }
     }
+    console.warn('[PEER] Cannot send, connection is not open');
     return false;
   }
   
   function disconnect() {
-    if (conn) conn.close();
-    if (peer) peer.destroy();
-    conn = null;
-    peer = null;
+    if (conn) {
+      try { conn.close(); } catch(e) {}
+      conn = null;
+    }
+    if (peer) {
+      try { peer.destroy(); } catch(e) {}
+      peer = null;
+    }
     connected = false;
     matchmakingActive = false;
     if (matchmakingPeer && !matchmakingPeer.destroyed) {
-      matchmakingPeer.destroy();
+      try { matchmakingPeer.destroy(); } catch(e) {}
       matchmakingPeer = null;
     }
   }
